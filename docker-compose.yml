@@ -21,8 +21,9 @@ services:
     ports:
       - "5001:5001"
     environment:
+      - NODE_ENV=development
       - PORT=5001
-      - DATABASE_URL=postgresql://user:password@postgres:5432/footprint_db
+      - DATABASE_URL=postgresql://postgres.upkwjzxfavnybjzsoqpu:yeA42eTdAnQ0LGpt@aws-0-us-east-2.pooler.supabase.com:5432/postgres
       - REDIS_URL=redis://redis:6379
       - AUTH_SERVICE_URL=http://auth-service:4000
     depends_on:
@@ -37,7 +38,9 @@ services:
     ports:
       - "4000:4000"
     environment:
-      - DATABASE_URL=postgresql://user:password@postgres:5432/auth_db
+      - NODE_ENV=development
+      - PORT=4000
+      - DATABASE_URL=postgresql://postgres.upkwjzxfavnybjzsoqpu:yeA42eTdAnQ0LGpt@aws-0-us-east-2.pooler.supabase.com:5432/postgres
       - JWT_SECRET=92f50bad8e544efeadb7df856fe4dc27d0b99013730b6afefc6b2ec78a884effa5d4e2452816c5153ca07fd712fb4f0eead24e415897a14e4eecd1c95a6959ac
       - JWT_EXPIRES_IN=24h
     depends_on:
