@@ -7,6 +7,15 @@ interface Transaction {
   name: string;
   amount: number;
   category: string[];
+  emissions?: {
+    industry: string;
+    emissionFactor: {
+      industry: string;
+      factor: number;
+      unit: string;
+      description: string;
+    } | null;
+  } | null;
 }
 
 export default function PlaidTest() {
@@ -38,7 +47,29 @@ export default function PlaidTest() {
       const response = await axios.post('http://localhost:5001/api/plaid/transactions/sync', {
         access_token: accessToken
       });
-      setTransactions(response.data.transactions || []);
+      
+      // Fetch emissions data for each transaction
+      const transactionsWithEmissions = await Promise.all(
+        (response.data.transactions || []).map(async (tx: Transaction) => {
+          try {
+            const emissionsResponse = await axios.post('http://localhost:5001/api/business/classify', {
+              businessName: tx.name
+            });
+            return {
+              ...tx,
+              emissions: emissionsResponse.data
+            };
+          } catch (error) {
+            console.error('Error fetching emissions for transaction:', tx.name, error);
+            return {
+              ...tx,
+              emissions: null
+            };
+          }
+        })
+      );
+
+      setTransactions(transactionsWithEmissions);
     } catch (error) {
       console.error('Error fetching transactions:', error);
       setError('Failed to fetch transactions');
@@ -76,7 +107,7 @@ export default function PlaidTest() {
 
   return (
     <div className="min-h-screen bg-gray-100 p-8">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <div className="bg-white p-8 rounded-lg shadow-md mb-8">
           <h1 className="text-2xl font-bold mb-4">Plaid Integration Test</h1>
           <div className="space-x-4">
@@ -120,6 +151,7 @@ export default function PlaidTest() {
                     <th className="px-4 py-2 text-left">Description</th>
                     <th className="px-4 py-2 text-right">Amount</th>
                     <th className="px-4 py-2 text-left">Category</th>
+                    <th className="px-4 py-2 text-left">Carbon Emissions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -132,6 +164,23 @@ export default function PlaidTest() {
                       </td>
                       <td className="px-4 py-2">
                         {transaction.category ? (Array.isArray(transaction.category) ? transaction.category.join(', ') : transaction.category) : 'Uncategorized'}
+                      </td>
+                      <td className="px-4 py-2">
+                        {transaction.emissions ? (
+                          <div>
+                            <div className="font-semibold">{transaction.emissions.industry}</div>
+                            {transaction.emissions.emissionFactor ? (
+                              <div className="text-sm">
+                                <div>{transaction.emissions.emissionFactor.factor} {transaction.emissions.emissionFactor.unit}</div>
+                                <div className="text-gray-600">{transaction.emissions.emissionFactor.description}</div>
+                              </div>
+                            ) : (
+                              <div className="text-sm text-yellow-600">No emission factor found</div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="text-sm text-gray-500">Loading emissions...</div>
+                        )}
                       </td>
                     </tr>
                   ))}
