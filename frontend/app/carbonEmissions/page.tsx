@@ -4,29 +4,37 @@ import React, { useState } from 'react';
 
 export default function CarbonEmissions() {
   const [businessName, setBusinessName] = useState('');
-  const [result, setResult] = useState('');
-  const [error, setError] = useState('');
+  const [result, setResult] = useState<{
+    industry: string;
+    emissionFactor: {
+      industry: string;
+      factor: number;
+      unit: string;
+      description: string;
+    } | null;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   const classifyBusiness = async () => {
     try {
       setLoading(true);
-      setError('');
+      setError(null);
+      
       const response = await fetch('http://localhost:5001/api/business/classify', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ name: businessName }),
+        body: JSON.stringify({ businessName }),
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to classify business');
+        throw new Error('Failed to classify business');
       }
 
       const data = await response.json();
-      setResult(data.industry);
+      setResult(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
@@ -69,9 +77,20 @@ export default function CarbonEmissions() {
           )}
 
           {result && (
-            <div className="mt-4 p-4 bg-green-50 rounded-md">
-              <h2 className="text-lg font-medium text-green-800">Industry:</h2>
-              <p className="mt-1 text-green-700">{result}</p>
+            <div className="mt-4 p-4 bg-white rounded-lg shadow">
+              <h3 className="text-lg font-semibold">Classification Result:</h3>
+              <p className="mt-2">{result.industry}</p>
+              
+              {result.emissionFactor ? (
+                <div className="mt-4">
+                  <h4 className="text-md font-semibold">Emission Factor:</h4>
+                  <p className="mt-1">Industry: {result.emissionFactor.industry}</p>
+                  <p className="mt-1">Factor: {result.emissionFactor.factor} {result.emissionFactor.unit}</p>
+                  <p className="mt-1 text-sm text-gray-600">{result.emissionFactor.description}</p>
+                </div>
+              ) : (
+                <p className="mt-2 text-sm text-yellow-600">No matching emission factor found for this industry.</p>
+              )}
             </div>
           )}
         </div>

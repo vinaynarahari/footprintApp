@@ -1,9 +1,10 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response } from 'express';
 import { GoogleGenerativeAI } from '@google/generative-ai';
-import { AppError } from '../middleware/errorHandler';
+import { findClosestEmissionFactor } from '../utils/fuzzySearch';
+import emissionFactors from '../data/GHGEmissionFactors.json';
 
 // Log the API key (first few characters) for debugging
-const apiKey = process.env.GEMINI_API_KEY || '';
+const apiKey = process.env.GEMINI_API_KEY || 'AIzaSyCMePKfxSCgkDj5xtpHKFXMnlqAFvxFOSs';
 console.log('Gemini API Key (first 10 chars):', apiKey.substring(0, 10));
 
 if (!apiKey) {
@@ -13,57 +14,39 @@ if (!apiKey) {
 
 const genAI = new GoogleGenerativeAI(apiKey);
 
-export const classifyBusiness = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
+export const classifyBusiness = async (req: Request, res: Response) => {
   try {
-    const { name } = req.body;
-
-    if (!name) {
-      throw new AppError('Business name is required', 400);
-    }
-
-    console.log('Attempting to classify business:', name);
+    const { businessName } = req.body;
     
-    try {
-      // Use the correct model name according to the latest Gemini API
-      const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
-      console.log('Successfully initialized Gemini model');
-
-      const prompt = `Given the business name "${name}", classify it into one of the 1,017 NAICS (North American Industry Classification System) 2017 industry titles. 
-      
-Please respond with ONLY the exact NAICS title that best matches this business. Do not include any explanation, just the title.
-      
-For example:
-- For "McDonald's" you might respond with "Restaurants and Other Eating Places"
-- For "Netflix" you might respond with "Motion Picture and Video Distribution"
-- For "Walmart" you might respond with "Supermarkets and Other Grocery (except Convenience) Stores"
-
-If you're unsure, choose the closest match from the NAICS 2017 classification system.`;
-      
-      console.log('Sending prompt to Gemini API');
-
-      const result = await model.generateContent(prompt);
-      console.log('Received response from Gemini API');
-      
-      const response = await result.response;
-      const industry = response.text().trim();
-      
-      console.log('Classified business as:', industry);
-      res.json({ industry });
-    } catch (apiError: any) {
-      console.error('Gemini API Error:', {
-        error: apiError,
-        message: apiError.message,
-        status: apiError.status,
-        details: apiError.errorDetails
-      });
-      throw new AppError(`Error with Gemini API: ${apiError.message}`, 500);
+    if (!businessName) {
+      return res.status(400).json({ error: 'Business name is required' });
     }
+
+    // Initialize the model
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+
+    const prompt = `Classify the following business into the most appropriate 2017 NAICS industry title. 
+    Only respond with the exact NAICS title, nothing else. Business name: "${businessName}"`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const classification = response.text().trim();
+
+    // Find matching emission factor using fuzzy search
+    const emissionFactor = findClosestEmissionFactor(classification, emissionFactors);
+
+    res.json({
+      industry: classification,
+      emissionFactor: emissionFactor ? {
+        industry: emissionFactor["2017 NAICS Title"],
+        factor: emissionFactor["Supply Chain Emission Factors with Margins"],
+        unit: emissionFactor["Unit"],
+        description: `NAICS Code: ${emissionFactor["2017 NAICS Code"]}, GHG: ${emissionFactor["GHG"]}`
+      } : null
+    });
+
   } catch (error) {
-    console.error('Error in classifyBusiness:', error);
-    next(error);
+    console.error('Error classifying business:', error);
+    res.status(500).json({ error: 'Failed to classify business' });
   }
 }; 
