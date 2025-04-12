@@ -41,7 +41,6 @@ export const classifyBusiness = async (req: Request, res: Response) => {
         industry: emissionFactor["2017 NAICS Title"],
         factor: emissionFactor["Supply Chain Emission Factors with Margins"],
         unit: emissionFactor["Unit"],
-        description: `NAICS Code: ${emissionFactor["2017 NAICS Code"]}, GHG: ${emissionFactor["GHG"]}`
       } : null
     });
 
