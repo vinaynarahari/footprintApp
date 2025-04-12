@@ -23,7 +23,7 @@ export const classifyBusiness = async (req: Request, res: Response) => {
     }
 
     // Initialize the model
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro-exp-03-25" });
 
     const prompt = `Classify the following business into the most appropriate 2017 NAICS industry title. 
     Only respond with the exact NAICS title, nothing else. Business name: "${businessName}"`;
