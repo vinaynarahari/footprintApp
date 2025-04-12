@@ -14,6 +14,57 @@ if (!apiKey) {
 
 const genAI = new GoogleGenerativeAI(apiKey);
 
+// Helper function to delay execution
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Helper function to process a single business with retries
+const processBusinessWithRetry = async (businessName: string, retries = 3, delayMs = 30000) => {
+  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+  
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      const prompt = `Classify the following business into the most appropriate 2017 NAICS industry title. 
+      Only respond with the exact NAICS title, nothing else. Business name: "${businessName}"`;
+
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      const classification = response.text().trim();
+
+      const emissionFactor = findClosestEmissionFactor(classification, emissionFactors);
+
+      return {
+        businessName,
+        industry: classification,
+        emissionFactor: emissionFactor ? {
+          industry: emissionFactor["2017 NAICS Title"],
+          factor: emissionFactor["Supply Chain Emission Factors with Margins"],
+          unit: emissionFactor["Unit"],
+        } : null
+      };
+    } catch (error: any) {
+      console.error(`Attempt ${attempt} failed for ${businessName}:`, error);
+      
+      if (error.status === 429 && attempt < retries) {
+        console.log(`Rate limited. Waiting ${delayMs/1000} seconds before retry...`);
+        await delay(delayMs);
+        continue;
+      }
+      
+      return {
+        businessName,
+        industry: "Unknown",
+        emissionFactor: null
+      };
+    }
+  }
+  
+  return {
+    businessName,
+    industry: "Unknown",
+    emissionFactor: null
+  };
+};
+
 export const classifyBusiness = async (req: Request, res: Response) => {
   try {
     const { businessName } = req.body;
@@ -47,5 +98,41 @@ export const classifyBusiness = async (req: Request, res: Response) => {
   } catch (error) {
     console.error('Error classifying business:', error);
     res.status(500).json({ error: 'Failed to classify business' });
+  }
+};
+
+export const classifyBusinessBatch = async (req: Request, res: Response) => {
+  try {
+    const { businessNames } = req.body;
+    
+    if (!businessNames || !Array.isArray(businessNames)) {
+      return res.status(400).json({ error: 'Business names array is required' });
+    }
+
+    // Process in batches of 5 with 2 second delay between batches
+    const BATCH_SIZE = 5;
+    const BATCH_DELAY = 2000;
+    const results = [];
+
+    for (let i = 0; i < businessNames.length; i += BATCH_SIZE) {
+      const batch = businessNames.slice(i, i + BATCH_SIZE);
+      console.log(`Processing batch ${i/BATCH_SIZE + 1} of ${Math.ceil(businessNames.length/BATCH_SIZE)}`);
+      
+      const batchResults = await Promise.all(
+        batch.map(businessName => processBusinessWithRetry(businessName))
+      );
+      
+      results.push(...batchResults);
+      
+      // Add delay between batches if not the last batch
+      if (i + BATCH_SIZE < businessNames.length) {
+        await delay(BATCH_DELAY);
+      }
+    }
+
+    res.json(results);
+  } catch (error) {
+    console.error('Error in batch classification:', error);
+    res.status(500).json({ error: 'Failed to classify businesses' });
   }
 }; 

@@ -48,27 +48,33 @@ export default function PlaidTest() {
         access_token: accessToken
       });
       
-      // Fetch emissions data for each transaction
-      const transactionsWithEmissions = await Promise.all(
-        (response.data.transactions || []).map(async (tx: Transaction) => {
-          try {
-            const emissionsResponse = await axios.post('http://localhost:5001/api/business/classify', {
-              businessName: tx.name
-            });
-            return {
-              ...tx,
-              emissions: emissionsResponse.data
-            };
-          } catch (error) {
-            console.error('Error fetching emissions for transaction:', tx.name, error);
-            return {
-              ...tx,
-              emissions: null
-            };
-          }
-        })
+      console.log('Raw transactions response:', response.data);
+      
+      const transactions = response.data.transactions || [];
+      
+      // Get all unique business names
+      const businessNames = [...new Set(transactions.map(tx => tx.name))];
+      console.log('Unique business names:', businessNames);
+
+      // Send all business names at once
+      const emissionsResponse = await axios.post('http://localhost:5001/api/business/classify/batch', {
+        businessNames
+      });
+
+      console.log('Batch emissions response:', emissionsResponse.data);
+
+      // Create a map of business name to emissions data
+      const emissionsMap = new Map(
+        emissionsResponse.data.map((item: any) => [item.businessName, item])
       );
 
+      // Map emissions data back to transactions
+      const transactionsWithEmissions = transactions.map(tx => ({
+        ...tx,
+        emissions: emissionsMap.get(tx.name) || null
+      }));
+
+      console.log('Final transactions with emissions:', transactionsWithEmissions);
       setTransactions(transactionsWithEmissions);
     } catch (error) {
       console.error('Error fetching transactions:', error);
