@@ -3,11 +3,10 @@ import { usePlaidLink, PlaidLinkProps } from 'react-plaid-link';
 import axios from 'axios';
 
 interface Transaction {
-  transaction_id: string;
   date: string;
   name: string;
   amount: number;
-  category?: string[];
+  category: string[];
   emissions?: {
     industry: string;
     emissionFactor: {
@@ -15,8 +14,8 @@ interface Transaction {
       factor: number;
       unit: string;
       description: string;
-    };
-  };
+    } | null;
+  } | null;
 }
 
 export default function PlaidTest() {
@@ -45,50 +44,37 @@ export default function PlaidTest() {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('http://localhost:5001/api/plaid/transactions/sync', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ access_token: accessToken }),
+      const response = await axios.post('http://localhost:5001/api/plaid/transactions/sync', {
+        access_token: accessToken
+      });
+      
+      console.log('Raw transactions response:', response.data);
+      
+      const transactions = response.data.transactions || [];
+      
+      // Get all unique business names
+      const businessNames = [...new Set(transactions.map(tx => tx.name))];
+      console.log('Unique business names:', businessNames);
+
+      // Send all business names at once
+      const emissionsResponse = await axios.post('http://localhost:5001/api/business/classify/batch', {
+        businessNames
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to fetch transactions');
-      }
+      console.log('Batch emissions response:', emissionsResponse.data);
 
-      const data = await response.json();
-      console.log('Raw transactions data:', data);
+      // Create a map of business name to emissions data
+      const emissionsMap = new Map(
+        emissionsResponse.data.map((item: any) => [item.businessName, item])
+      );
 
-      // Get unique business names
-      const uniqueBusinessNames = Array.from(new Set(data.transactions.map((t: Transaction) => t.name)));
-      console.log('Unique business names:', uniqueBusinessNames);
-
-      // Classify all businesses at once
-      const emissionsResponse = await fetch('http://localhost:5001/api/business/classify/batch', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ businessNames: uniqueBusinessNames }),
-      });
-
-      if (!emissionsResponse.ok) {
-        throw new Error('Failed to fetch emissions data');
-      }
-
-      const emissionsData = await emissionsResponse.json();
-      console.log('Emissions data:', emissionsData);
-
-      // Create a map of business names to emissions data
-      const emissionsMap = new Map(emissionsData.map((item: any) => [item.businessName, item]));
-
-      // Add emissions data to transactions
-      const transactionsWithEmissions = data.transactions.map((transaction: Transaction) => ({
-        ...transaction,
-        emissions: emissionsMap.get(transaction.name),
+      // Map emissions data back to transactions
+      const transactionsWithEmissions = transactions.map(tx => ({
+        ...tx,
+        emissions: emissionsMap.get(tx.name) || null
       }));
 
+      console.log('Final transactions with emissions:', transactionsWithEmissions);
       setTransactions(transactionsWithEmissions);
     } catch (error) {
       console.error('Error fetching transactions:', error);
@@ -164,48 +150,42 @@ export default function PlaidTest() {
           <div className="bg-white p-8 rounded-lg shadow-md">
             <h2 className="text-xl font-bold mb-4">Transaction History</h2>
             <div className="overflow-x-auto">
-              <table className="min-w-full bg-white border border-gray-200">
+              <table className="min-w-full bg-white">
                 <thead>
-                  <tr>
-                    <th className="px-6 py-3 border-b border-gray-200 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Date
-                    </th>
-                    <th className="px-6 py-3 border-b border-gray-200 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Description
-                    </th>
-                    <th className="px-6 py-3 border-b border-gray-200 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Carbon Emissions
-                    </th>
-                    <th className="px-6 py-3 border-b border-gray-200 bg-gray-50 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Classification
-                    </th>
+                  <tr className="bg-gray-100">
+                    <th className="px-4 py-2 text-left">Date</th>
+                    <th className="px-4 py-2 text-left">Description</th>
+                    <th className="px-4 py-2 text-right">Amount</th>
+                    <th className="px-4 py-2 text-left">Category</th>
+                    <th className="px-4 py-2 text-left">Carbon Emissions</th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {transactions.map((transaction) => (
-                    <tr key={transaction.transaction_id}>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {new Date(transaction.date).toLocaleDateString()}
+                <tbody>
+                  {transactions.map((transaction, index) => (
+                    <tr key={index} className="border-t">
+                      <td className="px-4 py-2">{new Date(transaction.date).toLocaleDateString()}</td>
+                      <td className="px-4 py-2">{transaction.name}</td>
+                      <td className="px-4 py-2 text-right">
+                        ${Math.abs(transaction.amount).toFixed(2)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {transaction.name}
+                      <td className="px-4 py-2">
+                        {transaction.category ? (Array.isArray(transaction.category) ? transaction.category.join(', ') : transaction.category) : 'Uncategorized'}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-4 py-2">
                         {transaction.emissions ? (
-                          <div className="font-medium">
-                            {(transaction.emissions.emissionFactor.factor * Math.abs(transaction.amount)).toFixed(2)} {transaction.emissions.emissionFactor.unit.split('/')[0]}
+                          <div>
+                            <div className="font-semibold">{transaction.emissions.industry}</div>
+                            {transaction.emissions.emissionFactor ? (
+                              <div className="text-sm">
+                                <div>{transaction.emissions.emissionFactor.factor} {transaction.emissions.emissionFactor.unit}</div>
+                                <div className="text-gray-600">{transaction.emissions.emissionFactor.description}</div>
+                              </div>
+                            ) : (
+                              <div className="text-sm text-yellow-600">No emission factor found</div>
+                            )}
                           </div>
                         ) : (
-                          <div className="text-gray-400">Loading...</div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                        {transaction.emissions ? (
-                          <div className="text-gray-600">
-                            {transaction.emissions.emissionFactor.industry}
-                          </div>
-                        ) : (
-                          <div className="text-gray-400">Loading...</div>
+                          <div className="text-sm text-gray-500">Loading emissions...</div>
                         )}
                       </td>
                     </tr>

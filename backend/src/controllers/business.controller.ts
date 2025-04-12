@@ -45,9 +45,8 @@ const processBusinessWithRetry = async (businessName: string, retries = 3, delay
       console.error(`Attempt ${attempt} failed for ${businessName}:`, error);
       
       if (error.status === 429 && attempt < retries) {
-        const retryDelay = error.errorDetails?.find((d: any) => d['@type'] === 'type.googleapis.com/google.rpc.RetryInfo')?.retryDelay || delayMs;
-        console.log(`Rate limited. Waiting ${retryDelay} before retry...`);
-        await delay(parseInt(retryDelay) * 1000);
+        console.log(`Rate limited. Waiting ${delayMs/1000} seconds before retry...`);
+        await delay(delayMs);
         continue;
       }
       
@@ -110,9 +109,9 @@ export const classifyBusinessBatch = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Business names array is required' });
     }
 
-    // Process in smaller batches with longer delays
-    const BATCH_SIZE = 3;
-    const BATCH_DELAY = 5000; // 5 seconds between batches
+    // Process in batches of 5 with 2 second delay between batches
+    const BATCH_SIZE = 5;
+    const BATCH_DELAY = 2000;
     const results = [];
 
     for (let i = 0; i < businessNames.length; i += BATCH_SIZE) {
