@@ -15,19 +15,40 @@ export function findClosestEmissionFactor(
   classification: string,
   emissionFactors: EmissionFactor[]
 ): EmissionFactor | null {
-  // Configure Fuse.js for fuzzy searching
-  const fuse = new Fuse(emissionFactors, {
+  // Configure Fuse.js for fuzzy searching by title
+  const fuseByTitle = new Fuse(emissionFactors, {
     keys: ['2017 NAICS Title'],
-    threshold: 0.4, // Lower threshold means more strict matching
+    threshold: 0.6, // Higher threshold means more lenient matching
     includeScore: true
   });
 
-  // Perform the search
-  const searchResults = fuse.search(classification);
+  // First try matching by title
+  const titleResults = fuseByTitle.search(classification);
 
-  // If we have results, return the best match
-  if (searchResults.length > 0) {
-    return searchResults[0].item;
+  // If we have results from title search, return the best match
+  if (titleResults.length > 0) {
+    return titleResults[0].item;
+  }
+
+  // If no match by title, try matching by NAICS code if the input looks like a code
+  const naicsCodeMatch = classification.match(/^\d{6}$/);
+  if (naicsCodeMatch) {
+    const exactMatch = emissionFactors.find(ef => ef['2017 NAICS Code'].toString() === classification);
+    if (exactMatch) {
+      return exactMatch;
+    }
+  }
+
+  // If still no match, try a more lenient search with a higher threshold
+  const fuseMoreLenient = new Fuse(emissionFactors, {
+    keys: ['2017 NAICS Title'],
+    threshold: 0.8, // Even more lenient matching as a last resort
+    includeScore: true
+  });
+
+  const lenientResults = fuseMoreLenient.search(classification);
+  if (lenientResults.length > 0) {
+    return lenientResults[0].item;
   }
 
   return null;
