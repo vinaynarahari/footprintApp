@@ -1,79 +1,75 @@
-import { Request, Response, NextFunction } from 'express';
-import { plaidClient } from '../config/plaid';
-import { AppError } from '../middleware/errorHandler';
-import { CountryCode, Products, DepositoryAccountSubtype } from 'plaid';
+import { Request, Response } from 'express';
+import { PlaidService } from '../services/plaid.service';
 
-export const createLinkToken = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    console.log('Creating link token...');
-    console.log('User from request:', req.user);
-    console.log('Authorization header:', req.headers.authorization);
+interface JwtPayload {
+  userId: string;
+}
 
-    if (!req.user?.userId) {
-      console.error('No userId found in request');
-      throw new AppError('User ID is required', 400);
-    }
+interface AuthenticatedRequest extends Request {
+  user?: JwtPayload;
+}
 
-    const configs = {
-      user: {
-        client_user_id: String(req.user.userId)
-      },
-      client_name: 'Footprint App',
-      products: [Products.Auth],
-      country_codes: [CountryCode.Us],
-      language: 'en',
-      account_filters: {
-        depository: {
-          account_subtypes: [DepositoryAccountSubtype.Checking, DepositoryAccountSubtype.Savings]
-        }
-      }
-    };
-
-    console.log('Plaid configs:', JSON.stringify(configs, null, 2));
-
+export class PlaidController {
+  static async createLinkToken(req: AuthenticatedRequest, res: Response) {
     try {
-      const createTokenResponse = await plaidClient.linkTokenCreate(configs);
-      console.log('Plaid response:', JSON.stringify(createTokenResponse.data, null, 2));
-      res.json({ link_token: createTokenResponse.data.link_token });
-    } catch (plaidError: any) {
-      console.error('Plaid API error:', {
-        error: plaidError,
-        message: plaidError.message,
-        response: plaidError.response?.data
-      });
-      throw new AppError(`Error creating link token: ${plaidError.message}`, 500);
+      // Temporarily bypass authentication for testing
+      const userId = 'test_user_123';
+      const response = await PlaidService.createLinkToken(userId);
+      res.json(response);
+    } catch (error) {
+      console.error('Error in createLinkToken:', error);
+      res.status(500).json({ error: 'Failed to create link token' });
     }
-  } catch (error) {
-    console.error('Error in createLinkToken:', error);
-    next(error);
   }
-};
 
-export const exchangePublicToken = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
-) => {
-  try {
-    const { public_token } = req.body;
-
-    if (!public_token) {
-      throw new AppError('Public token is required', 400);
+  static async exchangePublicToken(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { public_token } = req.body;
+      const response = await PlaidService.exchangePublicToken(public_token);
+      res.json(response);
+    } catch (error) {
+      console.error('Error in exchangePublicToken:', error);
+      res.status(500).json({ error: 'Failed to exchange public token' });
     }
-
-    const exchangeResponse = await plaidClient.itemPublicTokenExchange({
-      public_token,
-    });
-
-    // Here you would typically save the access_token to your database
-    // associated with the user's account
-
-    res.json({ access_token: exchangeResponse.data.access_token });
-  } catch (error) {
-    next(new AppError('Error exchanging public token', 500));
   }
-}; 
+
+  static async getTransactions(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { access_token, cursor } = req.body;
+      const response = await PlaidService.getTransactions(access_token, cursor);
+      res.json(response);
+    } catch (error) {
+      console.error('Error in getTransactions:', error);
+      res.status(500).json({ error: 'Failed to fetch transactions' });
+    }
+  }
+
+  static async refreshTransactions(req: AuthenticatedRequest, res: Response) {
+    try {
+      const { access_token } = req.body;
+      const response = await PlaidService.refreshTransactions(access_token);
+      res.json(response);
+    } catch (error) {
+      console.error('Error in refreshTransactions:', error);
+      res.status(500).json({ error: 'Failed to refresh transactions' });
+    }
+  }
+
+  static async handleWebhook(req: Request, res: Response) {
+    try {
+      const { webhook_type, webhook_code, item_id } = req.body;
+      
+      if (webhook_type === 'TRANSACTIONS' && webhook_code === 'SYNC_UPDATES_AVAILABLE') {
+        // Here you would typically:
+        // 1. Fetch the access_token for this item_id from your database
+        // 2. Call getTransactions to get the latest updates
+        // 3. Process and store the new transactions
+      }
+      
+      res.status(200).json({ status: 'ok' });
+    } catch (error) {
+      console.error('Error in handleWebhook:', error);
+      res.status(500).json({ error: 'Failed to process webhook' });
+    }
+  }
+} 

@@ -20,11 +20,10 @@ export default function Dashboard() {
       }
 
       console.log('Fetching link token from backend...');
-      const response = await fetch('http://localhost:5001/api/plaid/create-link-token', {
+      const response = await fetch('http://localhost:5001/api/plaid/link/token/create', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         }
       });
 
@@ -48,11 +47,10 @@ export default function Dashboard() {
   const handleOnSuccess = async (public_token: string) => {
     try {
       const token = localStorage.getItem('token');
-      const response = await fetch('http://localhost:5001/api/plaid/exchange-token', {
+      const response = await fetch('http://localhost:5001/api/plaid/item/public_token/exchange', {
         method: 'POST',
         headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
+          'Content-Type': 'application/json'
         },
         body: JSON.stringify({ public_token })
       });
