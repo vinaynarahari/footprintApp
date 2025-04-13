@@ -53,7 +53,7 @@ export default function PlaidTest() {
       const transactions = response.data.transactions || [];
       
       // Get all unique business names
-      const businessNames = [...new Set(transactions.map(tx => tx.name))];
+      const businessNames = Array.from(new Set(transactions.map(tx => tx.name)));
       console.log('Unique business names:', businessNames);
 
       // Send all business names at once
@@ -158,6 +158,7 @@ export default function PlaidTest() {
                     <th className="px-4 py-2 text-right">Amount</th>
                     <th className="px-4 py-2 text-left">Category</th>
                     <th className="px-4 py-2 text-left">Carbon Emissions</th>
+                    <th className="px-4 py-2 text-right">Calculated Emissions (kg)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -186,6 +187,15 @@ export default function PlaidTest() {
                           </div>
                         ) : (
                           <div className="text-sm text-gray-500">Loading emissions...</div>
+                        )}
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        {transaction.emissions?.emissionFactor ? (
+                          <div>
+                            {(Math.abs(transaction.amount) * transaction.emissions.emissionFactor.factor).toFixed(3)} kg
+                          </div>
+                        ) : (
+                          <div className="text-sm text-gray-500">-</div>
                         )}
                       </td>
                     </tr>
