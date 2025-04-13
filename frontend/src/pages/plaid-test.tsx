@@ -1,14 +1,17 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { usePlaidLink, PlaidLinkProps } from 'react-plaid-link';
+import { usePlaidLink } from 'react-plaid-link';
+import type { PlaidLinkProps } from 'react-plaid-link';
 import axios from 'axios';
 import { useRouter } from 'next/router';
 import Script from 'next/script';
-import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
+import CarbonMetrics from '../components/CarbonMetrics';
+import EmissionsPieChart from '../components/PieChart';
 
 interface Transaction {
   date: string;
   name: string;
   amount: number;
+  category: string[];
   emissions?: {
     industry: string;
     emissionFactor: {
@@ -226,63 +229,13 @@ export default function PlaidTest() {
 
         {transactions.length > 0 && (
           <>
+            <CarbonMetrics transactions={transactions} />
+            
             {categoryEmissions.length > 0 && (
               <div className="bg-white rounded-lg shadow-md p-6 mb-6">
                 <h2 className="text-xl font-bold mb-4">Carbon Emissions Distribution</h2>
                 <div className="h-[400px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={categoryEmissions}
-                        cx="50%"
-                        cy="50%"
-                        labelLine={true}
-                        label={({ name, percentage }) => {
-                          const shortName = name.length > 20 ? name.substring(0, 20) + '...' : name;
-                          return `${shortName} (${percentage.toFixed(1)}%)`;
-                        }}
-                        outerRadius={150}
-                        innerRadius={60}
-                        fill="#8884d8"
-                        dataKey="value"
-                        nameKey="name"
-                        isAnimationActive={true}
-                        paddingAngle={2}
-                      >
-                        {categoryEmissions.map((entry, index) => (
-                          <Cell 
-                            key={`cell-${index}`} 
-                            fill={COLORS[index % COLORS.length]}
-                            stroke="#fff"
-                            strokeWidth={2}
-                          />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        formatter={(value: number) => [`${value.toFixed(2)} kg CO2e`, 'Emissions']}
-                        contentStyle={{ 
-                          backgroundColor: 'white', 
-                          border: '1px solid #ccc',
-                          borderRadius: '4px',
-                          padding: '8px'
-                        }}
-                        labelStyle={{ fontWeight: 'bold' }}
-                      />
-                      <Legend 
-                        layout="vertical" 
-                        align="right" 
-                        verticalAlign="middle"
-                        wrapperStyle={{ 
-                          paddingLeft: '20px',
-                          fontSize: '12px'
-                        }}
-                        formatter={(value: string) => {
-                          const shortName = value.length > 25 ? value.substring(0, 25) + '...' : value;
-                          return shortName;
-                        }}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
+                  <EmissionsPieChart data={categoryEmissions} />
                 </div>
                 <div className="text-center mt-4 text-gray-600">
                   Total Carbon Emissions: {categoryEmissions.reduce((sum, item) => sum + item.value, 0).toFixed(2)} kg CO2e
@@ -299,6 +252,7 @@ export default function PlaidTest() {
                       <th className="px-4 py-2 text-left">Date</th>
                       <th className="px-4 py-2 text-left">Description</th>
                       <th className="px-4 py-2 text-right">Amount</th>
+                      <th className="px-4 py-2 text-left">Category</th>
                       <th className="px-4 py-2 text-left">Carbon Emissions</th>
                       <th className="px-4 py-2 text-right">Calculated Emissions (kg)</th>
                     </tr>
@@ -310,6 +264,9 @@ export default function PlaidTest() {
                         <td className="px-4 py-2">{transaction.name}</td>
                         <td className="px-4 py-2 text-right">
                           ${Math.abs(transaction.amount).toFixed(2)}
+                        </td>
+                        <td className="px-4 py-2">
+                          {transaction.category ? (Array.isArray(transaction.category) ? transaction.category.join(', ') : transaction.category) : 'Uncategorized'}
                         </td>
                         <td className="px-4 py-2">
                           {transaction.emissions ? (
