@@ -1,6 +1,28 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import Script from 'next/script';
+import { motion } from 'framer-motion';
+
+const containerVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { 
+    opacity: 1, 
+    y: 0,
+    transition: {
+      duration: 0.6,
+      staggerChildren: 0.1
+    }
+  }
+};
+
+const itemVariants = {
+  hidden: { opacity: 0, y: 20 },
+  visible: { 
+    opacity: 1, 
+    y: 0,
+    transition: { duration: 0.5 }
+  }
+};
 
 export default function Dashboard() {
   const router = useRouter();
@@ -96,28 +118,57 @@ export default function Dashboard() {
   }, []);
 
   return (
-    <div className="max-w-4xl mx-auto mt-8 p-6">
-      <h1 className="text-3xl font-bold mb-6">Dashboard</h1>
+    <motion.div 
+      className="max-w-4xl mx-auto mt-8 p-6"
+      variants={containerVariants}
+      initial="hidden"
+      animate="visible"
+    >
+      <motion.h1 
+        className="text-3xl font-bold mb-6"
+        variants={itemVariants}
+      >
+        Dashboard
+      </motion.h1>
       
       {message && (
-        <div className={`p-3 mb-4 rounded ${message.includes('Successfully') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+        <motion.div 
+          initial={{ opacity: 0, y: -10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3 }}
+          className={`p-3 mb-4 rounded ${message.includes('Successfully') ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}
+        >
           {message}
-        </div>
+        </motion.div>
       )}
 
-      <div className="bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-xl font-semibold mb-4">Connect Your Bank Account</h2>
-        <button
+      <motion.div 
+        className="bg-white rounded-lg shadow-md p-6"
+        variants={itemVariants}
+      >
+        <motion.h2 
+          className="text-xl font-semibold mb-4"
+          variants={itemVariants}
+        >
+          Connect Your Bank Account
+        </motion.h2>
+        <motion.button
           onClick={openPlaidLink}
           disabled={!linkToken || !plaidLoaded}
           className="bg-blue-500 text-white py-2 px-4 rounded-md hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          variants={itemVariants}
         >
           Connect with Plaid
-        </button>
-        <div className="mt-2 text-sm text-gray-500">
+        </motion.button>
+        <motion.div 
+          className="mt-2 text-sm text-gray-500"
+          variants={itemVariants}
+        >
           Status: {!linkToken ? 'Waiting for link token...' : !plaidLoaded ? 'Loading Plaid...' : 'Ready to connect'}
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
       
       <Script 
         src="https://cdn.plaid.com/link/v2/stable/link-initialize.js" 
@@ -126,6 +177,6 @@ export default function Dashboard() {
           setPlaidLoaded(true);
         }}
       />
-    </div>
+    </motion.div>
   );
 } 
