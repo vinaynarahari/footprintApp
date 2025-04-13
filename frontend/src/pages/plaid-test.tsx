@@ -7,11 +7,14 @@ import EmissionsPieChart from '../components/EmissionsPieChart';
 import TopEmissions from '../components/TopEmissions';
 import TransactionList from '../components/TransactionList';
 import MonthlyCarbonFootprint from '../components/MonthlyCarbonFootprint';
+import CarbonMetrics from '../components/CarbonMetrics';
+import Transactions from '../components/Transactions';
 
 interface Transaction {
   date: string;
   name: string;
   amount: number;
+  category: string[];
   emissions?: {
     industry: string;
     emissionFactor: {
@@ -28,6 +31,11 @@ interface CategoryEmissions {
   value: number;
   percentage: number;
 }
+
+const COLORS = [
+  '#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8',
+  '#82CA9D', '#FFC658', '#FF7C43', '#A4DE6C', '#D0ED57'
+];
 
 export default function PlaidTest() {
   const router = useRouter();
@@ -224,23 +232,36 @@ export default function PlaidTest() {
 
         {transactions.length > 0 && (
           <>
-            <MonthlyCarbonFootprint transactions={transactions} />
+            <CarbonMetrics transactions={transactions} />
             
             {categoryEmissions.length > 0 && (
               <div className="bg-white rounded-lg shadow-md p-6 mb-6">
                 <h2 className="text-xl font-bold mb-4">Carbon Emissions Distribution</h2>
-                <div className="flex flex-col md:flex-row gap-6 min-h-[400px]">
-                  <div className="flex-1">
-                    <EmissionsPieChart data={categoryEmissions} />
-                  </div>
-                  <div className="flex-1">
-                    <TopEmissions data={categoryEmissions} />
-                  </div>
+                <div className="h-[400px]">
+                  <EmissionsPieChart data={categoryEmissions} />
+                </div>
+                <div className="text-center mt-4 text-gray-600">
+                  Total Carbon Emissions: {categoryEmissions.reduce((sum, item) => sum + item.value, 0).toFixed(2)} kg CO2e
                 </div>
               </div>
             )}
 
-            <TransactionList transactions={transactions} />
+            <div className="bg-white rounded-lg shadow-md p-6">
+              <Transactions
+                transactions={transactions.map(tx => ({
+                  date: tx.date,
+                  description: tx.name,
+                  amount: tx.amount,
+                  category: Array.isArray(tx.category) ? tx.category[0] : tx.category || 'Uncategorized',
+                  carbon_emissions: tx.emissions ? {
+                    description: tx.emissions.industry,
+                    intensity: tx.emissions.emissionFactor ? `${tx.emissions.emissionFactor.factor} ${tx.emissions.emissionFactor.unit}` : 'N/A'
+                  } : undefined,
+                  calculated_emissions_kg: tx.emissions?.emissionFactor ? 
+                    Math.abs(tx.amount) * tx.emissions.emissionFactor.factor : 0
+                }))}
+              />
+            </div>
           </>
         )}
       </div>
