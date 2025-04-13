@@ -10,6 +10,7 @@ import MonthlyCarbonFootprint from '../components/MonthlyCarbonFootprint';
 import CarbonMetrics from '../components/CarbonMetrics';
 import Transactions from '../components/Transactions';
 import MonthlyComparison from '../components/MonthlyComparison';
+import CarbonDistanceHeadline from '../components/CarbonDistanceHeadline';
 
 interface Transaction {
   date: string;
@@ -259,6 +260,7 @@ export default function PlaidTest() {
         {transactions.length > 0 && (
           <>
             <MonthlyComparison transactions={transactions} />
+            <CarbonDistanceHeadline transactions={transactions} />
             <CarbonMetrics transactions={transactions} />
             
             {categoryEmissions.length > 0 && (
