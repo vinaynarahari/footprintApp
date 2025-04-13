@@ -23,6 +23,10 @@ interface Alternative {
   current_impact: string;
 }
 
+interface FeedbackMessages {
+  [key: string]: string[];
+}
+
 const EcoAlternative: React.FC<EcoAlternativeProps> = ({ transaction }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [alternative, setAlternative] = useState<Alternative | null>(null);
@@ -33,151 +37,284 @@ const EcoAlternative: React.FC<EcoAlternativeProps> = ({ transaction }) => {
     setAlternative(getAlternativeForCategory(transaction.category, transaction.amount, transaction.emissions_kg, transaction.merchant));
   }, [transaction]);
 
-  const getMerchantSpecificRecommendations = (merchant: string, category: string): string[] => {
+  // Helper function to determine if transaction is eco-friendly
+  const getTransactionStatus = (category: string, emissions_kg: number, amount: number, merchant: string): 'eco-friendly' | 'needs-improvement' => {
+    // Calculate emissions per dollar spent
+    const emissionsPerDollar = emissions_kg / amount;
+    const merchantLower = merchant.toLowerCase();
+
+    // Special handling for e-commerce
+    if (merchantLower.includes('amazon') || merchantLower.includes('ebay') || merchantLower.includes('walmart.com')) {
+      // For e-commerce, we use stricter thresholds due to shipping and packaging impact
+      const ecommerceThresholds = {
+        absoluteEmissions: 3.5,  // Lower threshold for e-commerce
+        emissionsPerDollar: 0.3  // Stricter per-dollar emissions
+      };
+      
+      return (emissions_kg < ecommerceThresholds.absoluteEmissions && 
+              emissionsPerDollar < ecommerceThresholds.emissionsPerDollar)
+        ? 'eco-friendly'
+        : 'needs-improvement';
+    }
+
+    const thresholds = {
+      'FOOD_AND_DRINK': {
+        absoluteEmissions: 8,
+        emissionsPerDollar: 0.8
+      },
+      'TRANSPORTATION': {
+        absoluteEmissions: 10,
+        emissionsPerDollar: 1.0
+      },
+      'GENERAL_MERCHANDISE': {
+        absoluteEmissions: 6,
+        emissionsPerDollar: 0.6
+      },
+      'PERSONAL_CARE': {
+        absoluteEmissions: 4,
+        emissionsPerDollar: 0.5
+      },
+      'default': {
+        absoluteEmissions: 7,
+        emissionsPerDollar: 0.7
+      }
+    };
+
+    const categoryThresholds = thresholds[category] || thresholds.default;
+    
+    return (emissions_kg < categoryThresholds.absoluteEmissions && 
+            emissionsPerDollar < categoryThresholds.emissionsPerDollar)
+      ? 'eco-friendly'
+      : 'needs-improvement';
+  };
+
+  const getPositiveFeedback = (category: string, merchant: string): string => {
+    const feedback: FeedbackMessages = {
+      'FOOD_AND_DRINK': [
+        "Great choice! This meal has a lower carbon footprint.",
+        "You're making sustainable dining choices!",
+        "This restaurant choice helps reduce environmental impact."
+      ],
+      'TRANSPORTATION': [
+        "Excellent transportation choice for the environment!",
+        "Your travel decision helps reduce emissions.",
+        "Smart pick! This trip has a lower carbon impact."
+      ],
+      'GENERAL_MERCHANDISE': [
+        "Smart shopping! This purchase has a lower environmental impact.",
+        "Great choice for sustainable shopping!",
+        "Your purchase helps reduce carbon emissions."
+      ],
+      'PERSONAL_CARE': [
+        "Excellent choice for eco-friendly personal care!",
+        "This is a sustainable wellness decision.",
+        "You're making environmentally conscious choices!"
+      ]
+    };
+
+    const categoryMessages = feedback[category] || feedback['GENERAL_MERCHANDISE'];
+    return categoryMessages[Math.floor(Math.random() * categoryMessages.length)];
+  };
+
+  const getIconStyles = (status: 'eco-friendly' | 'needs-improvement') => {
+    if (status === 'eco-friendly') {
+      return {
+        icon: <Leaf className="w-5 h-5 text-green-600" />,
+        hover: 'hover:bg-green-50',
+        border: 'border-green-100',
+        text: 'text-green-600'
+      };
+    }
+    return {
+      icon: <AlertTriangle className="w-5 h-5 text-red-600" />,
+      hover: 'hover:bg-red-50',
+      border: 'border-red-100',
+      text: 'text-red-600'
+    };
+  };
+
+  const status = getTransactionStatus(transaction.category, transaction.emissions_kg, transaction.amount, transaction.merchant);
+  const styles = getIconStyles(status);
+
+  const getMerchantSpecificRecommendations = (merchant: string, category: string, amount: number): string[] => {
     const merchantLower = merchant.toLowerCase();
     
-    // Fast Food Chains
+    // Fast Food and Restaurants
     if (merchantLower.includes('mcdonalds') || merchantLower.includes('mcdonald')) {
       return [
-        'Try their plant-based options like the McPlant burger',
-        'Skip the single-use plastic straws and lids',
-        'Bring your own reusable cup for drinks',
-        'Consider ordering through their app to reduce paper waste',
-        'Opt for water instead of soda to reduce sugar and packaging waste'
-      ];
-    }
-    if (merchantLower.includes('starbucks')) {
-      return [
-        'Bring your own reusable cup for a discount',
-        'Try their plant-based milk options',
-        'Skip the plastic lid and straw',
-        'Use their reusable cup program',
-        'Order through their app to reduce paper waste'
+        'Try local vegan burger spots like Beyond Burger or Impossible Foods restaurants',
+        'Visit farm-to-table restaurants in your area for fresh, local ingredients',
+        'Consider meal prep services that use organic ingredients',
+        'Look for restaurants that compost and use renewable energy',
+        'Support local diners that source from nearby farms'
       ];
     }
     if (merchantLower.includes('chipotle')) {
+      const alternatives = [
+        // Mexican/Latin American alternatives
+        'Try local authentic Mexican restaurants that source ingredients locally',
+        'Visit farm-to-table taquerias in your area',
+        'Look for Latin American restaurants using organic ingredients',
+        'Consider restaurants offering plant-based Mexican options',
+        'Support family-owned Mexican restaurants that use sustainable practices'
+      ];
+      if (amount < 15) {
+        alternatives.push('Check out food trucks using local ingredients');
+      }
+      return alternatives;
+    }
+    if (merchantLower.includes('starbucks')) {
       return [
-        'Choose their plant-based protein options',
-        'Bring your own reusable container',
-        'Skip the plastic utensils and napkins',
-        'Try their local and organic ingredients',
-        'Use their digital ordering to reduce paper waste'
+        'Visit local coffee shops that roast their own beans',
+        'Try cafes that source directly from sustainable farms',
+        'Support coffee shops using reusable cup programs',
+        'Look for cafes powered by renewable energy',
+        'Find shops offering organic and shade-grown coffee options'
       ];
     }
 
-    // E-commerce
-    if (merchantLower.includes('amazon')) {
+    // Retail Clothing
+    if (merchantLower.includes('abercrombie') || merchantLower.includes('h&m') || merchantLower.includes('zara')) {
       return [
-        'Use Amazon Day Delivery to consolidate shipments',
-        'Look for products with "Climate Pledge Friendly" badge',
-        'Choose minimal packaging options when available',
-        'Consider buying used items through Amazon Renewed',
-        'Use Amazon\'s recycling program for electronics'
+        'Shop at Patagonia for durable, environmentally conscious clothing',
+        'Try Reformation for sustainable fashion with similar styles',
+        'Visit local vintage or secondhand stores for unique pieces',
+        'Check out Everlane for transparent, sustainable manufacturing',
+        'Consider renting clothes from Rent the Runway for special occasions',
+        'Support local designers using sustainable materials'
       ];
     }
-    if (merchantLower.includes('target')) {
+
+    // Fitness
+    if (merchantLower.includes('planet fitness') || merchantLower.includes('24 hour fitness')) {
       return [
-        'Use their reusable bag program',
-        'Look for products with Target\'s "Made to Matter" sustainability line',
-        'Choose products with minimal packaging',
-        'Use their recycling stations for electronics and plastic bags',
-        'Consider their in-store pickup to reduce shipping emissions'
+        'Try outdoor bootcamp classes in local parks',
+        'Join community sports leagues or running groups',
+        'Look for gyms powered by renewable energy',
+        'Consider home workout equipment made from sustainable materials',
+        'Join eco-conscious yoga studios using natural lighting and ventilation'
       ];
     }
 
     // Transportation
     if (merchantLower.includes('uber') || merchantLower.includes('lyft')) {
+      let alternatives: string[] = [];
+      if (amount <= 15) {
+        alternatives = [
+          'Use local bike-sharing services for short trips',
+          'Try electric scooter rentals for quick errands',
+          'Walk when possible for nearby destinations'
+        ];
+      }
       return [
-        'Try Uber Green or Lyft Green for electric vehicle rides',
-        'Use shared rides when possible',
-        'Consider public transit for shorter trips',
-        'Use bike-share programs for short distances',
-        'Plan trips during off-peak hours to reduce congestion'
-      ];
-    }
-    if (merchantLower.includes('airbnb')) {
-      return [
-        'Look for "Eco-Friendly" listings',
-        'Choose accommodations with energy-efficient appliances',
-        'Support hosts with sustainable practices',
-        'Use public transportation during your stay',
-        'Conserve water and energy during your visit'
+        ...alternatives,
+        'Use public transit for regular commutes',
+        'Join a local carpool group',
+        'Consider electric vehicle rideshare options'
       ];
     }
 
     // Grocery
-    if (merchantLower.includes('whole foods') || merchantLower.includes('trader joe')) {
+    if (merchantLower.includes('whole foods') || merchantLower.includes('trader')) {
       return [
-        'Bring your own reusable bags',
-        'Choose local and seasonal produce',
-        'Use their bulk section to reduce packaging',
-        'Look for organic and fair-trade products',
-        'Try their plant-based alternatives'
+        'Shop at local farmers markets for fresh produce',
+        'Join a community-supported agriculture (CSA) program',
+        'Visit local food co-ops with bulk buying options',
+        'Support small organic grocery stores in your area',
+        'Try zero-waste grocery stores that minimize packaging'
       ];
     }
 
     // Default recommendations based on category
     if (category === 'FOOD_AND_DRINK') {
+      const cuisineTypes = {
+        'burger': ['local organic burger joints', 'plant-based burger restaurants'],
+        'pizza': ['pizzerias using local ingredients', 'wood-fired pizza places with sustainable practices'],
+        'asian': ['local Asian restaurants using organic ingredients', 'sustainable sushi restaurants with ocean-friendly sourcing'],
+        'coffee': ['local roasters', 'eco-friendly cafes'],
+        'default': ['farm-to-table restaurants', 'local organic eateries']
+      };
+
+      // Try to match the merchant name with cuisine type
+      const matchedCuisine = Object.keys(cuisineTypes).find(cuisine => 
+        merchantLower.includes(cuisine)
+      ) || 'default';
+
       return [
-        'Look for local and seasonal menu items',
-        'Bring your own reusable containers',
-        'Choose plant-based options when available',
-        'Support restaurants with sustainable sourcing',
-        'Skip single-use plastics and utensils'
-      ];
-    }
-    if (category === 'SHOPPING') {
-      return [
-        'Look for second-hand alternatives',
-        'Choose products with minimal packaging',
-        'Support local businesses when possible',
-        'Consider the product\'s lifecycle impact',
-        'Look for sustainable certifications'
-      ];
-    }
-    if (category === 'TRANSPORTATION') {
-      return [
-        'Use public transportation when possible',
-        'Consider carpooling or ridesharing',
-        'Try walking or biking for short distances',
-        'Look for electric vehicle options',
-        'Plan trips to minimize distance'
+        `Try ${cuisineTypes[matchedCuisine][0]} in your area`,
+        `Visit ${cuisineTypes[matchedCuisine][1]}`,
+        'Support restaurants with composting programs',
+        'Look for establishments using renewable energy',
+        'Choose places offering reusable container programs'
       ];
     }
 
+    if (category === 'SHOPPING') {
+      return [
+        'Visit local thrift stores or consignment shops',
+        'Check out B-Corp certified retailers in your area',
+        'Support local artisans and makers',
+        'Try zero-waste stores for household items',
+        'Look for products with minimal packaging'
+      ];
+    }
+
+    if (category === 'TRANSPORTATION') {
+      let alternatives: string[] = [];
+      if (amount <= 20) {
+        alternatives = [
+          'Use bike-sharing programs for short trips',
+          'Try electric scooter rentals',
+          'Walk when possible'
+        ];
+      } else {
+        alternatives = [
+          'Use public transportation for longer trips',
+          'Join a local carpool program',
+          'Consider electric vehicle options'
+        ];
+      }
+      return alternatives;
+    }
+
+    // Generic recommendations
     return [
       'Research local sustainable alternatives',
-      'Look for businesses with environmental certifications',
-      'Choose products with eco-friendly packaging',
-      'Support companies with carbon reduction goals',
+      'Support businesses with environmental certifications',
+      'Look for companies using renewable energy',
+      'Choose services with minimal environmental impact',
       'Consider digital or low-impact alternatives'
     ];
   };
 
   const getAlternativeForCategory = (category: string, amount: number, emissions_kg: number, merchant: string): Alternative => {
-    const merchantSpecificRecommendations = getMerchantSpecificRecommendations(merchant, category);
+    const merchantSpecificRecommendations = getMerchantSpecificRecommendations(merchant, category, amount);
     
     // Enhanced suggestions with specific recommendations and impact assessment
     const suggestions: Record<string, Alternative> = {
       'TRANSPORTATION': {
-        name: emissions_kg > 10 ? 'High-Impact Transportation Alternative' : 'Eco-Friendly Transit Options',
-        description: 'Switch to more sustainable transportation methods',
-        emissions_reduction: emissions_kg > 10 ? '~80%' : '~40%',
-        price_range: `$2 - $5`,
+        name: amount <= 15 ? 'Short-Distance Green Transit' : 'Sustainable Transportation',
+        description: amount <= 15 ? 
+          'Consider active transportation options for shorter trips' : 
+          'Switch to more sustainable transportation methods for longer journeys',
+        emissions_reduction: emissions_kg > 10 ? '70-80%' : '30-40%',
+        price_range: amount <= 15 ? '$2 - $5' : `$${(amount * 0.6).toFixed(2)} - $${amount.toFixed(2)}`,
         impact: emissions_kg > 10 ? 'negative' : 'positive',
         specific_recommendations: merchantSpecificRecommendations,
         current_impact: emissions_kg > 10 ? 
-          'Your current transportation choice has a high carbon footprint' : 
-          'Your transportation emissions are moderate'
+          'This trip has a significant carbon footprint' : 
+          'Consider greener alternatives for regular trips'
       },
       'FOOD_AND_DRINK': {
-        name: amount > 50 ? 'High-Impact Dining Alternative' : 'Sustainable Dining Choices',
-        description: 'Choose more sustainable dining options',
-        emissions_reduction: '~50%',
+        name: `Sustainable ${merchant.split(' ')[0]} Alternatives`,
+        description: 'Discover eco-conscious dining options with similar cuisine',
+        emissions_reduction: '40-60%',
         price_range: `$${(amount * 0.8).toFixed(2)} - $${amount.toFixed(2)}`,
-        impact: 'positive', // Local dining is generally positive
+        impact: emissions_kg > 5 ? 'negative' : 'positive',
         specific_recommendations: merchantSpecificRecommendations,
-        current_impact: 'Your dining choice supports local businesses and sustainable practices'
+        current_impact: emissions_kg > 5 ? 
+          'This meal has a higher environmental impact than necessary' : 
+          'Your dining choice is relatively sustainable'
       },
       'SHOPPING': {
         name: 'Sustainable Shopping Alternatives',
@@ -217,48 +354,60 @@ const EcoAlternative: React.FC<EcoAlternativeProps> = ({ transaction }) => {
     };
   };
 
-  const handleClick = () => {
-    setIsExpanded(!isExpanded);
+  const isEcoFriendly = (emissions: number, category: string): boolean => {
+    const thresholds: { [key: string]: number } = {
+      'FOOD_AND_DRINK': 5.0,
+      'TRANSPORTATION': 8.0,
+      'GENERAL_MERCHANDISE': 10.0,
+      'PERSONAL_CARE': 6.0
+    };
+    
+    const threshold = thresholds[category] || thresholds['GENERAL_MERCHANDISE'];
+    return emissions <= threshold;
   };
 
   return (
-    <div className="relative inline-block">
-      <button
-        onClick={handleClick}
-        className={`p-1 rounded-full transition-colors ${
-          alternative?.impact === 'negative' 
-            ? 'hover:bg-red-50' 
-            : 'hover:bg-green-50'
-        }`}
-        title="View eco-friendly alternatives"
+    <div 
+      className="relative inline-block"
+      onMouseEnter={() => {
+        setIsExpanded(true);
+        if (status === 'needs-improvement' && !alternative) {
+          // Only fetch alternatives for high-emission transactions
+          setAlternative(getAlternativeForCategory(transaction.category, transaction.amount, transaction.emissions_kg, transaction.merchant));
+        }
+      }}
+      onMouseLeave={() => setIsExpanded(false)}
+    >
+      <div
+        className={`p-1 rounded-full transition-colors ${styles.hover}`}
+        title={status === 'eco-friendly' ? 'Eco-friendly choice!' : 'View eco-friendly alternatives'}
       >
-        {alternative ? (
-          alternative.impact === 'negative' ? (
-            <AlertTriangle className="w-5 h-5 text-red-600" />
-          ) : (
-            <ThumbsUp className="w-5 h-5 text-green-600" />
-          )
-        ) : (
-          <Leaf className="w-5 h-5 text-blue-600" />
-        )}
-      </button>
+        {styles.icon}
+      </div>
 
       {isExpanded && (
-        <div className={`absolute z-10 right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border ${
-          alternative?.impact === 'negative' 
-            ? 'border-red-100' 
-            : 'border-green-100'
-        }`}>
+        <div className={`absolute z-10 right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border ${styles.border}`}>
           <div className="p-4">
-            {isLoading ? (
-              <div className="text-sm text-gray-500">Finding alternatives...</div>
+            {status === 'eco-friendly' ? (
+              <div className="space-y-3">
+                <div className={`text-sm font-medium ${styles.text}`}>
+                  {getPositiveFeedback(transaction.category, transaction.merchant)}
+                </div>
+                <p className="text-sm text-gray-600">
+                  Your carbon footprint for this transaction is {transaction.emissions_kg.toFixed(2)} kg CO₂, 
+                  which is below average for this category. Keep making sustainable choices!
+                </p>
+                <div className="text-sm text-gray-600">
+                  <span className="font-medium">Why this is good: </span>
+                  {transaction.category === 'FOOD_AND_DRINK' && 'Lower emissions often mean more local, seasonal, or plant-based options.'}
+                  {transaction.category === 'TRANSPORTATION' && 'This indicates efficient or shared transportation methods.'}
+                  {transaction.category === 'GENERAL_MERCHANDISE' && 'This suggests sustainable or local shopping practices.'}
+                  {transaction.category === 'PERSONAL_CARE' && 'This reflects eco-conscious personal care choices.'}
+                </div>
+              </div>
             ) : alternative ? (
               <div className="space-y-4">
-                <div className={`text-sm font-medium ${
-                  alternative.impact === 'negative' 
-                    ? 'text-red-600' 
-                    : 'text-green-600'
-                }`}>
+                <div className={`text-sm font-medium ${styles.text}`}>
                   {alternative.current_impact}
                 </div>
                 <h3 className="font-semibold text-gray-800">{alternative.name}</h3>
@@ -273,9 +422,9 @@ const EcoAlternative: React.FC<EcoAlternativeProps> = ({ transaction }) => {
                     <span>{alternative.price_range}</span>
                   </div>
                 </div>
-                {alternative.specific_recommendations && alternative.specific_recommendations.length > 0 && (
+                {alternative.specific_recommendations && (
                   <div className="space-y-2">
-                    <h4 className="font-medium text-gray-700">Specific Recommendations:</h4>
+                    <h4 className="font-medium text-gray-700">Recommended Alternatives:</h4>
                     <ul className="text-sm text-gray-600 space-y-1">
                       {alternative.specific_recommendations.map((rec, index) => (
                         <li key={index} className="flex items-start">
@@ -288,7 +437,7 @@ const EcoAlternative: React.FC<EcoAlternativeProps> = ({ transaction }) => {
                 )}
               </div>
             ) : (
-              <div className="text-sm text-gray-500">No alternatives found</div>
+              <div className="text-sm text-gray-500">Loading...</div>
             )}
           </div>
         </div>
