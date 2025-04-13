@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { UserCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useSession, signOut } from 'next-auth/react';
 
 const navigation = [
   { name: 'Home', href: '/' },
@@ -21,14 +22,14 @@ const scrollToSection = (elementId: string) => {
 
 function Navbar() {
   const [isOpen, setIsOpen] = useState(false);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [mounted, setMounted] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const router = useRouter();
+  const { data: session, status } = useSession();
+  const isAuthenticated = status === 'authenticated';
 
   useEffect(() => {
     setMounted(true);
-    setIsAuthenticated(localStorage.getItem('token') !== null);
 
     const handleScroll = () => {
       setIsScrolled(window.scrollY > 0);
@@ -43,10 +44,8 @@ function Navbar() {
     return null;
   }
 
-  const handleLogout = () => {
-    // Clear any auth state/tokens
-    localStorage.removeItem('token');
-    setIsAuthenticated(false);
+  const handleLogout = async () => {
+    await signOut({ redirect: false });
   };
 
   return (
@@ -66,45 +65,6 @@ function Navbar() {
           </div>
 
           {/* Desktop Navigation */}
-          <div className="hidden sm:flex sm:space-x-8">
-            {navigation.map((item) => (
-              item.isScroll ? (
-                <button
-                  key={item.name}
-                  onClick={() => scrollToSection('how-it-works')}
-                  className={`inline-flex items-center px-1 pt-1 text-sm font-medium border-b-2 ${
-                    router.pathname === item.href
-                      ? isScrolled 
-                        ? 'border-white text-white' 
-                        : 'border-black text-gray-900'
-                      : isScrolled
-                        ? 'border-transparent text-gray-300 hover:border-gray-300 hover:text-white'
-                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                  }`}
-                >
-                  {item.name}
-                </button>
-              ) : (
-                <Link
-                  key={item.name}
-                  href={item.href}
-                  className={`inline-flex items-center px-1 pt-1 text-sm font-medium border-b-2 ${
-                    router.pathname === item.href
-                      ? isScrolled 
-                        ? 'border-white text-white' 
-                        : 'border-black text-gray-900'
-                      : isScrolled
-                        ? 'border-transparent text-gray-300 hover:border-gray-300 hover:text-white'
-                        : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                  }`}
-                >
-                  {item.name}
-                </Link>
-              )
-            ))}
-          </div>
-
-          {/* User Menu */}
           <div className="hidden sm:flex sm:items-center sm:space-x-4">
             {isAuthenticated ? (
               <>
@@ -162,22 +122,21 @@ function Navbar() {
           {/* Mobile menu button */}
           <div className="sm:hidden">
             <button
-              type="button"
-              className={`inline-flex items-center justify-center rounded-md p-2 ${
-                isScrolled 
-                  ? 'text-gray-300 hover:bg-gray-800 hover:text-white' 
-                  : 'text-gray-400 hover:bg-gray-100 hover:text-gray-500'
-              }`}
               onClick={() => setIsOpen(!isOpen)}
+              className={`inline-flex items-center justify-center p-2 rounded-md ${
+                isScrolled
+                  ? 'text-gray-300 hover:text-white hover:bg-gray-700'
+                  : 'text-gray-500 hover:text-gray-700 hover:bg-gray-100'
+              }`}
             >
               <span className="sr-only">Open main menu</span>
-              {!isOpen ? (
-                <svg className="block h-6 w-6" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+              {isOpen ? (
+                <svg className="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
               ) : (
-                <svg className="block h-6 w-6" fill="none" viewBox="0 0 24 24" strokeWidth="1.5" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                <svg className="block h-6 w-6" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" aria-hidden="true">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
               )}
             </button>
@@ -196,14 +155,10 @@ function Navbar() {
                   scrollToSection('how-it-works');
                   setIsOpen(false);
                 }}
-                className={`block w-full text-left border-l-4 py-2 pl-3 pr-4 text-base font-medium ${
-                  router.pathname === item.href
-                    ? isScrolled
-                      ? 'border-white text-white bg-gray-900'
-                      : 'border-black text-black bg-gray-50'
-                    : isScrolled
-                      ? 'border-transparent text-gray-300 hover:border-gray-300 hover:bg-gray-800 hover:text-white'
-                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700'
+                className={`block w-full text-left border-l-4 border-transparent py-2 pl-3 pr-4 text-base font-medium ${
+                  isScrolled
+                    ? 'text-gray-300 hover:border-gray-300 hover:bg-gray-800 hover:text-white'
+                    : 'text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700'
                 }`}
               >
                 {item.name}
@@ -212,14 +167,15 @@ function Navbar() {
               <Link
                 key={item.name}
                 href={item.href}
-                className={`block border-l-4 py-2 pl-3 pr-4 text-base font-medium ${
+                onClick={() => setIsOpen(false)}
+                className={`block border-l-4 border-transparent py-2 pl-3 pr-4 text-base font-medium ${
                   router.pathname === item.href
                     ? isScrolled
-                      ? 'border-white text-white bg-gray-900'
-                      : 'border-black text-black bg-gray-50'
+                      ? 'border-white text-white'
+                      : 'border-black text-gray-900'
                     : isScrolled
-                      ? 'border-transparent text-gray-300 hover:border-gray-300 hover:bg-gray-800 hover:text-white'
-                      : 'border-transparent text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700'
+                      ? 'text-gray-300 hover:border-gray-300 hover:bg-gray-800 hover:text-white'
+                      : 'text-gray-500 hover:border-gray-300 hover:bg-gray-50 hover:text-gray-700'
                 }`}
               >
                 {item.name}
@@ -229,7 +185,10 @@ function Navbar() {
           {isAuthenticated ? (
             <>
               <button
-                onClick={() => router.push('/dashboard')}
+                onClick={() => {
+                  router.push('/dashboard');
+                  setIsOpen(false);
+                }}
                 className={`block w-full text-left border-l-4 border-transparent py-2 pl-3 pr-4 text-base font-medium ${
                   isScrolled
                     ? 'text-gray-300 hover:border-gray-300 hover:bg-gray-800 hover:text-white'
@@ -239,7 +198,10 @@ function Navbar() {
                 Dashboard
               </button>
               <button
-                onClick={handleLogout}
+                onClick={() => {
+                  handleLogout();
+                  setIsOpen(false);
+                }}
                 className={`block w-full text-left border-l-4 border-transparent py-2 pl-3 pr-4 text-base font-medium ${
                   isScrolled
                     ? 'text-gray-300 hover:border-gray-300 hover:bg-gray-800 hover:text-white'
@@ -253,6 +215,7 @@ function Navbar() {
             <>
               <Link
                 href="/auth"
+                onClick={() => setIsOpen(false)}
                 className={`block border-l-4 border-transparent py-2 pl-3 pr-4 text-base font-medium ${
                   isScrolled
                     ? 'text-gray-300 hover:border-gray-300 hover:bg-gray-800 hover:text-white'
@@ -263,6 +226,7 @@ function Navbar() {
               </Link>
               <Link
                 href="/auth"
+                onClick={() => setIsOpen(false)}
                 className={`block border-l-4 border-transparent py-2 pl-3 pr-4 text-base font-medium ${
                   isScrolled
                     ? 'text-gray-300 hover:border-gray-300 hover:bg-gray-800 hover:text-white'

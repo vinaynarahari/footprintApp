@@ -3,8 +3,8 @@ declare module 'react-plaid-link' {
 
   interface PlaidLinkProps {
     token: string | null;
-    onSuccess: (public_token: string) => void;
-    onExit?: () => void;
+    onSuccess: (public_token: string, metadata: any) => void;
+    onExit?: (err: any, metadata: any) => void;
     onLoad?: () => void;
     onEvent?: (eventName: string, metadata: any) => void;
     language?: string;

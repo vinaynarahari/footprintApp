@@ -8,8 +8,12 @@ const router = express.Router();
 // Register endpoint
 router.post('/register', async (req: Request, res: Response) => {
     try {
-        const { email, password } = req.body;
+        const { email, password, fullName } = req.body;
         
+        if (!email || !password || !fullName) {
+            return res.status(400).json({ message: 'Missing required fields' });
+        }
+
         // Check if user already exists
         const existingUser = await UserModel.findByEmail(email);
         if (existingUser) {
@@ -21,7 +25,7 @@ router.post('/register', async (req: Request, res: Response) => {
         const passwordHash = await bcrypt.hash(password, salt);
 
         // Create user
-        const user = await UserModel.create(email, passwordHash);
+        const user = await UserModel.create(email, passwordHash, fullName);
 
         // Create JWT token
         const token = jwt.sign(
@@ -32,6 +36,11 @@ router.post('/register', async (req: Request, res: Response) => {
 
         res.status(201).json({
             message: 'User created successfully',
+            user: {
+                id: user.id,
+                email: user.email,
+                fullName: user.full_name
+            },
             token
         });
     } catch (error) {
@@ -66,6 +75,11 @@ router.post('/login', async (req: Request, res: Response) => {
 
         res.json({
             message: 'Login successful',
+            user: {
+                id: user.id,
+                email: user.email,
+                fullName: user.full_name
+            },
             token
         });
     } catch (error) {

@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { usePlaidLink, PlaidLinkProps } from 'react-plaid-link';
 import axios from 'axios';
 import { useRouter } from 'next/router';
-import Script from 'next/script';
+import Head from 'next/head';
+import { usePlaidScript } from '../hooks/usePlaidScript';
 import EmissionsPieChart from '../components/EmissionsPieChart';
 import TopEmissions from '../components/TopEmissions';
 import TransactionList from '../components/TransactionList';
@@ -48,6 +49,16 @@ export default function PlaidTest() {
   const [error, setError] = useState<string | null>(null);
   const [daysToInclude, setDaysToInclude] = useState<number>(30); // Default to 30 days
   const isMounted = useRef(true);
+
+  // Use our custom hook to load the Plaid script
+  const { isLoaded: isPlaidScriptLoaded, error: plaidScriptError } = usePlaidScript();
+  
+  // Update error state if Plaid script fails to load
+  useEffect(() => {
+    if (plaidScriptError) {
+      setError('Failed to load Plaid script. Please refresh the page.');
+    }
+  }, [plaidScriptError]);
 
   // Calculate date ranges for the slider
   const dateRanges = useMemo(() => {
@@ -215,14 +226,9 @@ export default function PlaidTest() {
 
   return (
     <>
-      <Script
-        src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"
-        strategy="beforeInteractive"
-        onError={(e) => {
-          console.error('Failed to load Plaid script:', e);
-          setError('Failed to load Plaid script');
-        }}
-      />
+      <Head>
+        <title>Plaid Test | Footprint</title>
+      </Head>
       <div className="container mx-auto px-4 py-8">
         <div className="bg-white rounded-lg shadow-md p-6 mb-6">
           <h1 className="text-2xl font-bold mb-4">Plaid Integration Test</h1>

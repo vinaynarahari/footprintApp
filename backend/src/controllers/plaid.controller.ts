@@ -15,10 +15,22 @@ export class PlaidController {
       // Temporarily bypass authentication for testing
       const userId = 'test_user_123';
       const response = await PlaidService.createLinkToken(userId);
-      res.json(response);
+      
+      // Ensure we're sending a properly formatted response
+      if (!response || !response.link_token) {
+        throw new Error('Invalid response from Plaid service');
+      }
+      
+      res.json({
+        link_token: response.link_token,
+        expiration: response.expiration
+      });
     } catch (error) {
       console.error('Error in createLinkToken:', error);
-      res.status(500).json({ error: 'Failed to create link token' });
+      res.status(500).json({ 
+        error: 'Failed to create link token',
+        details: error instanceof Error ? error.message : 'Unknown error'
+      });
     }
   }
 

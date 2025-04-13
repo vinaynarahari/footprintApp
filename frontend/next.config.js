@@ -4,6 +4,20 @@ const nextConfig = {
   images: {
     domains: ['images.unsplash.com'],
   },
+  // Add configuration for external scripts
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          {
+            key: 'Content-Security-Policy',
+            value: "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://cdn.plaid.com;",
+          },
+        ],
+      },
+    ];
+  },
 }
 
 module.exports = nextConfig 

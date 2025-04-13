@@ -23,10 +23,8 @@ const facts = [
 
 const AuthPage = () => {
   const router = useRouter();
-  const { status } = useSession();
-  const [activeTab, setActiveTab] = useState<'login' | 'register'>(
-    router.query.tab === 'register' ? 'register' : 'login'
-  );
+  const { data: session, status } = useSession();
+  const [activeTab, setActiveTab] = useState<'login' | 'register'>('login');
   const [currentSlide, setCurrentSlide] = useState(0);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -51,10 +49,11 @@ const AuthPage = () => {
   }, [status, router]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
-    });
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
     setError('');
   };
 
@@ -73,45 +72,67 @@ const AuthPage = () => {
 
         if (result?.error) {
           setError('Invalid email or password');
+          setLoading(false);
+          return;
         }
       } else {
-        // Register
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(formData),
-        });
+        try {
+          const res = await fetch('/api/auth/register', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              fullName: formData.fullName,
+              email: formData.email,
+              password: formData.password,
+            }),
+          });
 
-        const data = await response.json();
+          const data = await res.json();
 
-        if (!response.ok) {
-          throw new Error(data.message || 'Registration failed');
+          if (!res.ok) {
+            setError(data.message || 'Registration failed');
+            setLoading(false);
+            return;
+          }
+
+          // If registration was successful, sign in the user
+          const result = await signIn('credentials', {
+            redirect: false,
+            email: formData.email,
+            password: formData.password,
+          });
+
+          if (result?.error) {
+            setError('Account created but login failed. Please try logging in.');
+            setLoading(false);
+            return;
+          }
+        } catch (err) {
+          console.error('Registration error:', err);
+          setError('Registration failed. Please try again.');
+          setLoading(false);
+          return;
         }
-
-        // After successful registration, switch to login tab
-        setActiveTab('login');
-        setFormData({ ...formData, fullName: '' });
-        setError('Account created! Please sign in.');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
+      console.error('Auth error:', err);
+      setError(err instanceof Error ? err.message : 'An unexpected error occurred');
       setLoading(false);
     }
   };
 
   if (status === 'loading') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
-          className="w-8 h-8 border-2 border-black border-t-transparent rounded-full"
-        />
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="w-8 h-8 border-4 border-gray-900 border-t-transparent rounded-full animate-spin"></div>
       </div>
     );
+  }
+
+  if (status === 'authenticated') {
+    return null;
   }
 
   return (
