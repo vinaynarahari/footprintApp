@@ -31,17 +31,35 @@ const EcoAlternative: React.FC<EcoAlternativeProps> = ({ transaction }) => {
   const [isExpanded, setIsExpanded] = useState(false);
   const [alternative, setAlternative] = useState<Alternative | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [shouldShowAbove, setShouldShowAbove] = useState(false);
 
   // Pre-load the alternative when component mounts
   useEffect(() => {
     setAlternative(getAlternativeForCategory(transaction.category, transaction.amount, transaction.emissions_kg, transaction.merchant));
   }, [transaction]);
 
+  // Check position when component mounts and when expanded changes
+  useEffect(() => {
+    if (isExpanded) {
+      const element = document.getElementById(`eco-alternative-${transaction.id}`);
+      if (element) {
+        const rect = element.getBoundingClientRect();
+        const viewportHeight = window.innerHeight;
+        setShouldShowAbove(viewportHeight - rect.top > viewportHeight * 0.8);
+      }
+    }
+  }, [isExpanded, transaction.id]);
+
   // Helper function to determine if transaction is eco-friendly
   const getTransactionStatus = (category: string, emissions_kg: number, amount: number, merchant: string): 'eco-friendly' | 'needs-improvement' => {
     // Calculate emissions per dollar spent
     const emissionsPerDollar = emissions_kg / amount;
     const merchantLower = merchant.toLowerCase();
+
+    // Special handling for consistently eco-friendly merchants
+    if (merchantLower.includes('trader') || merchantLower.includes("trader's") || merchantLower.includes('traders')) {
+      return 'eco-friendly';
+    }
 
     // Special handling for e-commerce
     if (merchantLower.includes('amazon') || merchantLower.includes('ebay') || merchantLower.includes('walmart.com')) {
@@ -368,11 +386,11 @@ const EcoAlternative: React.FC<EcoAlternativeProps> = ({ transaction }) => {
 
   return (
     <div 
+      id={`eco-alternative-${transaction.id}`}
       className="relative inline-block"
       onMouseEnter={() => {
         setIsExpanded(true);
         if (status === 'needs-improvement' && !alternative) {
-          // Only fetch alternatives for high-emission transactions
           setAlternative(getAlternativeForCategory(transaction.category, transaction.amount, transaction.emissions_kg, transaction.merchant));
         }
       }}
@@ -386,7 +404,14 @@ const EcoAlternative: React.FC<EcoAlternativeProps> = ({ transaction }) => {
       </div>
 
       {isExpanded && (
-        <div className={`absolute z-10 right-0 mt-2 w-96 bg-white rounded-lg shadow-xl border ${styles.border}`}>
+        <div 
+          className={`absolute z-10 w-96 bg-white rounded-lg shadow-xl border ${styles.border}`}
+          style={{
+            bottom: shouldShowAbove ? 'calc(100% + 0.5rem)' : undefined,
+            top: !shouldShowAbove ? 'calc(100% + 0.5rem)' : undefined,
+            right: 0
+          }}
+        >
           <div className="p-4">
             {status === 'eco-friendly' ? (
               <div className="space-y-3">
