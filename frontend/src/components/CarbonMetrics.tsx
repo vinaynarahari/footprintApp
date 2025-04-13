@@ -70,34 +70,34 @@ export default function CarbonMetrics({ transactions }: CarbonMetricsProps) {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <div className="bg-gray-50 p-4 rounded-lg">
           <h3 className="text-lg font-semibold mb-2">Daily</h3>
-          <p className="text-sm text-gray-600">Total Carbon: {metrics.daily.carbon.toFixed(3)} kg</p>
+          <p className="text-sm text-gray-600">Total Carbon: {metrics.daily.carbon.toFixed(5)} kg</p>
           <p className="text-sm text-gray-600">Total Amount: ${metrics.daily.amount.toFixed(2)}</p>
           <p className="text-lg font-bold mt-2">
-            {metrics.daily.ratio.toFixed(6)} kg/$
+            {metrics.daily.ratio.toFixed(5)} kg/$
           </p>
         </div>
         <div className="bg-gray-50 p-4 rounded-lg">
           <h3 className="text-lg font-semibold mb-2">Weekly</h3>
-          <p className="text-sm text-gray-600">Total Carbon: {metrics.weekly.carbon.toFixed(3)} kg</p>
+          <p className="text-sm text-gray-600">Total Carbon: {metrics.weekly.carbon.toFixed(5)} kg</p>
           <p className="text-sm text-gray-600">Total Amount: ${metrics.weekly.amount.toFixed(2)}</p>
           <p className="text-lg font-bold mt-2">
-            {metrics.weekly.ratio.toFixed(6)} kg/$
+            {metrics.weekly.ratio.toFixed(5)} kg/$
           </p>
         </div>
         <div className="bg-gray-50 p-4 rounded-lg">
           <h3 className="text-lg font-semibold mb-2">Monthly</h3>
-          <p className="text-sm text-gray-600">Total Carbon: {metrics.monthly.carbon.toFixed(3)} kg</p>
+          <p className="text-sm text-gray-600">Total Carbon: {metrics.monthly.carbon.toFixed(5)} kg</p>
           <p className="text-sm text-gray-600">Total Amount: ${metrics.monthly.amount.toFixed(2)}</p>
           <p className="text-lg font-bold mt-2">
-            {metrics.monthly.ratio.toFixed(6)} kg/$
+            {metrics.monthly.ratio.toFixed(5)} kg/$
           </p>
         </div>
         <div className="bg-gray-50 p-4 rounded-lg">
           <h3 className="text-lg font-semibold mb-2">Yearly</h3>
-          <p className="text-sm text-gray-600">Total Carbon: {metrics.yearly.carbon.toFixed(3)} kg</p>
+          <p className="text-sm text-gray-600">Total Carbon: {metrics.yearly.carbon.toFixed(5)} kg</p>
           <p className="text-sm text-gray-600">Total Amount: ${metrics.yearly.amount.toFixed(2)}</p>
           <p className="text-lg font-bold mt-2">
-            {metrics.yearly.ratio.toFixed(6)} kg/$
+            {metrics.yearly.ratio.toFixed(5)} kg/$
           </p>
         </div>
       </div>

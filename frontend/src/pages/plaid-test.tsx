@@ -45,17 +45,42 @@ export default function PlaidTest() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [daysToInclude, setDaysToInclude] = useState<number>(30); // Default to 30 days
   const isMounted = useRef(true);
+
+  // Calculate date ranges for the slider
+  const dateRanges = useMemo(() => {
+    if (!transactions.length) return { earliest: new Date(), latest: new Date(), totalDays: 0 };
+    
+    const dates = transactions.map(tx => new Date(tx.date));
+    const earliest = new Date(Math.min(...dates.map(d => d.getTime())));
+    const latest = new Date(Math.max(...dates.map(d => d.getTime())));
+    const totalDays = Math.ceil((latest.getTime() - earliest.getTime()) / (1000 * 60 * 60 * 24));
+    
+    return { earliest, latest, totalDays };
+  }, [transactions]);
 
   // Calculate category emissions for the pie chart
   const categoryEmissions = useMemo(() => {
     if (!transactions.length) return [];
 
+    // Calculate cutoff date from the latest transaction date, not current date
+    const dates = transactions.map(tx => new Date(tx.date));
+    const latestDate = new Date(Math.max(...dates.map(d => d.getTime())));
+    const cutoffDate = new Date(latestDate);
+    cutoffDate.setDate(cutoffDate.getDate() - daysToInclude);
+
+    // Filter transactions by date range
+    const recentTransactions = transactions.filter(tx => {
+      const txDate = new Date(tx.date);
+      return txDate >= cutoffDate && txDate <= latestDate;
+    });
+
     // Calculate total emissions for each category
     const categoryTotals = new Map<string, number>();
     let totalEmissions = 0;
 
-    transactions.forEach(tx => {
+    recentTransactions.forEach(tx => {
       if (tx.emissions?.emissionFactor) {
         const category = tx.emissions.industry;
         const emissionValue = Math.abs(tx.amount) * tx.emissions.emissionFactor.factor;
@@ -78,7 +103,7 @@ export default function PlaidTest() {
       .sort((a, b) => b.value - a.value);
 
     return emissions;
-  }, [transactions]);
+  }, [transactions, daysToInclude]);
 
   const onSuccess = useCallback(async (public_token: string) => {
     if (!isMounted.current) return;
@@ -239,11 +264,33 @@ export default function PlaidTest() {
             {categoryEmissions.length > 0 && (
               <div className="bg-white rounded-lg shadow-md p-6 mb-6">
                 <h2 className="text-xl font-bold mb-4">Carbon Emissions Distribution</h2>
+                <div className="mb-4">
+                  <label htmlFor="dateRange" className="block text-sm font-medium text-gray-700 mb-2">
+                    Showing data for: {new Date(dateRanges.latest.getTime() - (daysToInclude * 24 * 60 * 60 * 1000)).toLocaleDateString()} - {dateRanges.latest.toLocaleDateString()}
+                  </label>
+                  <input
+                    type="range"
+                    id="dateRange"
+                    min="7"
+                    max={Math.max(dateRanges.totalDays, 7)}
+                    value={daysToInclude}
+                    onChange={(e) => setDaysToInclude(Number(e.target.value))}
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>7 days</span>
+                    <span>{dateRanges.totalDays} days</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>Most Recent: {dateRanges.latest.toLocaleDateString()}</span>
+                    <span>Earliest: {dateRanges.earliest.toLocaleDateString()}</span>
+                  </div>
+                </div>
                 <div className="h-[400px]">
                   <EmissionsPieChart data={categoryEmissions} />
                 </div>
                 <div className="text-center mt-4 text-gray-600">
-                  Total Carbon Emissions: {categoryEmissions.reduce((sum, item) => sum + item.value, 0).toFixed(2)} kg CO2e
+                  Total Carbon Emissions: {categoryEmissions.reduce((sum, item) => sum + item.value, 0).toFixed(5)} kg CO2e
                 </div>
               </div>
             )}
