@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import Image from 'next/image';
+import { useRouter } from 'next/router';
 
 const facts = [
   {
@@ -20,8 +21,17 @@ const facts = [
 ];
 
 const AuthPage = () => {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<'login' | 'register'>('register');
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  
+  const [formData, setFormData] = useState({
+    fullName: '',
+    email: '',
+    password: ''
+  });
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -30,6 +40,50 @@ const AuthPage = () => {
 
     return () => clearInterval(timer);
   }, []);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData({
+      ...formData,
+      [e.target.name]: e.target.value
+    });
+    setError('');
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+
+    try {
+      const endpoint = activeTab === 'login' ? '/auth/login' : '/auth/register';
+      const response = await fetch(`http://localhost:4000${endpoint}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(activeTab === 'login' ? {
+          email: formData.email,
+          password: formData.password
+        } : formData),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || 'Authentication failed');
+      }
+
+      // Store the token
+      localStorage.setItem('token', data.token);
+      
+      // Redirect to dashboard
+      router.push('/dashboard');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="min-h-screen flex">
@@ -111,10 +165,19 @@ const AuthPage = () => {
             transition={{ duration: 0.5, delay: 0.1 }}
             className="bg-white/70 backdrop-blur-xl rounded-xl p-6 border border-gray-200 shadow-xl shadow-gray-200/20"
           >
+            {error && (
+              <div className="mb-4 p-3 rounded-md bg-red-50 border border-red-200 text-red-600 text-sm">
+                {error}
+              </div>
+            )}
+
             {/* Tabs */}
             <div className="flex space-x-1 mb-6 bg-gray-100 rounded-lg p-1">
               <button
-                onClick={() => setActiveTab('login')}
+                onClick={() => {
+                  setActiveTab('login');
+                  setError('');
+                }}
                 className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${
                   activeTab === 'login'
                     ? 'bg-black text-white'
@@ -124,7 +187,10 @@ const AuthPage = () => {
                 Login
               </button>
               <button
-                onClick={() => setActiveTab('register')}
+                onClick={() => {
+                  setActiveTab('register');
+                  setError('');
+                }}
                 className={`flex-1 py-2 rounded-md text-sm font-medium transition-all ${
                   activeTab === 'register'
                     ? 'bg-black text-white'
@@ -136,70 +202,106 @@ const AuthPage = () => {
             </div>
 
             {/* Form */}
-            <motion.div
-              key={activeTab}
-              initial={{ opacity: 0, x: activeTab === 'login' ? -20 : 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.3 }}
-              className="space-y-4"
-            >
-              {activeTab === 'register' && (
+            <form onSubmit={handleSubmit}>
+              <motion.div
+                key={activeTab}
+                initial={{ opacity: 0, x: activeTab === 'login' ? -20 : 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.3 }}
+                className="space-y-4"
+              >
+                {activeTab === 'register' && (
+                  <div className="space-y-2">
+                    <label className="block text-sm font-medium text-gray-700">Full Name</label>
+                    <input
+                      type="text"
+                      name="fullName"
+                      value={formData.fullName}
+                      onChange={handleInputChange}
+                      className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent transition-all [&:-webkit-autofill]:bg-white [&:-webkit-autofill]:shadow-[0_0_0_30px_white_inset]"
+                      placeholder="John Doe"
+                      required={activeTab === 'register'}
+                    />
+                  </div>
+                )}
+
                 <div className="space-y-2">
-                  <label className="block text-sm font-medium text-gray-700">Full Name</label>
+                  <label className="block text-sm font-medium text-gray-700">Email</label>
                   <input
-                    type="text"
+                    type="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleInputChange}
                     className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent transition-all [&:-webkit-autofill]:bg-white [&:-webkit-autofill]:shadow-[0_0_0_30px_white_inset]"
-                    placeholder="John Doe"
+                    placeholder="you@example.com"
+                    required
                   />
                 </div>
-              )}
 
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Email</label>
-                <input
-                  type="email"
-                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent transition-all [&:-webkit-autofill]:bg-white [&:-webkit-autofill]:shadow-[0_0_0_30px_white_inset]"
-                  placeholder="you@example.com"
-                />
-              </div>
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-gray-700">Password</label>
+                  <input
+                    type="password"
+                    name="password"
+                    value={formData.password}
+                    onChange={handleInputChange}
+                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent transition-all [&:-webkit-autofill]:bg-white [&:-webkit-autofill]:shadow-[0_0_0_30px_white_inset]"
+                    placeholder="••••••••"
+                    required
+                  />
+                </div>
 
-              <div className="space-y-2">
-                <label className="block text-sm font-medium text-gray-700">Password</label>
-                <input
-                  type="password"
-                  className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent transition-all [&:-webkit-autofill]:bg-white [&:-webkit-autofill]:shadow-[0_0_0_30px_white_inset]"
-                  placeholder="••••••••"
-                />
-              </div>
+                <button 
+                  type="submit"
+                  disabled={loading}
+                  className="w-full py-3 px-4 bg-black text-white rounded-md font-medium hover:bg-gray-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {loading ? (
+                    <span className="inline-flex items-center">
+                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                      </svg>
+                      {activeTab === 'login' ? 'Signing in...' : 'Creating account...'}
+                    </span>
+                  ) : (
+                    activeTab === 'login' ? 'Sign In' : 'Create Account'
+                  )}
+                </button>
 
-              <button className="w-full py-3 px-4 bg-black text-white rounded-md font-medium hover:bg-gray-900 transition-colors">
-                {activeTab === 'login' ? 'Sign In' : 'Create Account'}
-              </button>
-
-              <p className="text-sm text-gray-500 text-center">
-                {activeTab === 'login' ? (
-                  <>
-                    Don't have an account?{' '}
-                    <button
-                      onClick={() => setActiveTab('register')}
-                      className="text-gray-900 hover:text-gray-700 transition-colors font-medium"
-                    >
-                      Sign up
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    Already have an account?{' '}
-                    <button
-                      onClick={() => setActiveTab('login')}
-                      className="text-gray-900 hover:text-gray-700 transition-colors font-medium"
-                    >
-                      Sign in
-                    </button>
-                  </>
-                )}
-              </p>
-            </motion.div>
+                <p className="text-sm text-gray-500 text-center">
+                  {activeTab === 'login' ? (
+                    <>
+                      Don't have an account?{' '}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('register');
+                          setError('');
+                        }}
+                        className="text-gray-900 hover:text-gray-700 transition-colors font-medium"
+                      >
+                        Sign up
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      Already have an account?{' '}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActiveTab('login');
+                          setError('');
+                        }}
+                        className="text-gray-900 hover:text-gray-700 transition-colors font-medium"
+                      >
+                        Sign in
+                      </button>
+                    </>
+                  )}
+                </p>
+              </motion.div>
+            </form>
           </motion.div>
         </div>
       </div>
