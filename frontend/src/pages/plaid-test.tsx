@@ -12,21 +12,31 @@ import CarbonMetrics from '../components/CarbonMetrics';
 import Transactions from '../components/Transactions';
 import MonthlyComparison from '../components/MonthlyComparison';
 import CarbonDistanceHeadline from '../components/CarbonDistanceHeadline';
+import { calculateCO2 } from '../utils/co2';
+
+interface EmissionFactor {
+  industry: string;
+  factor: number;
+  unit: string;
+}
+
+interface EmissionsData {
+  businessName: string;
+  industry: string;
+  emissionFactor: EmissionFactor | null;
+}
 
 interface Transaction {
   date: string;
   name: string;
   amount: number;
   category: string[];
-  emissions?: {
-    industry: string;
-    emissionFactor: {
-      industry: string;
-      factor: number;
-      unit: string;
-      description: string;
-    } | null;
-  } | null;
+  merchant_name?: string;
+  personal_finance_category?: {
+    primary: string;
+    detailed: string;
+  };
+  calculated_emissions_kg?: number;
 }
 
 interface CategoryEmissions {
@@ -93,15 +103,13 @@ export default function PlaidTest() {
     let totalEmissions = 0;
 
     recentTransactions.forEach(tx => {
-      if (tx.emissions?.emissionFactor) {
-        const category = tx.emissions.industry;
-        const emissionValue = Math.abs(tx.amount) * tx.emissions.emissionFactor.factor;
-        
+      if (tx.calculated_emissions_kg) {
+        const category = tx.personal_finance_category?.primary || tx.category[0] || 'Uncategorized';
         categoryTotals.set(
           category,
-          (categoryTotals.get(category) || 0) + emissionValue
+          (categoryTotals.get(category) || 0) + tx.calculated_emissions_kg
         );
-        totalEmissions += emissionValue;
+        totalEmissions += tx.calculated_emissions_kg;
       }
     });
 
@@ -121,11 +129,23 @@ export default function PlaidTest() {
     if (!isMounted.current) return;
 
     try {
-      const response = await axios.post('http://localhost:5001/api/plaid/item/public_token/exchange', {
-        public_token
+      const response = await fetch('/api/plaid/exchange-token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ public_token })
       });
+
+      if (!response.ok) {
+        throw new Error('Failed to exchange token');
+      }
+
+      const data = await response.json();
+      
       if (isMounted.current) {
-        setAccessToken(response.data.access_token);
+        setAccessToken(data.access_token);
+        localStorage.setItem('plaid_access_token', data.access_token);
       }
     } catch (error) {
       console.error('Error exchanging public token:', error);
@@ -135,7 +155,7 @@ export default function PlaidTest() {
     }
   }, []);
 
-  const onExit = useCallback((err?: Error | null, metadata?: any) => {
+  const onExit = useCallback((err?: Error | null) => {
     if (!isMounted.current) return;
 
     if (err) {
@@ -156,9 +176,21 @@ export default function PlaidTest() {
     if (!isMounted.current) return;
     
     try {
-      const response = await axios.post('http://localhost:5001/api/plaid/link/token/create');
+      const response = await fetch('/api/plaid/create-link-token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create link token');
+      }
+
+      const data = await response.json();
+      
       if (isMounted.current) {
-        setLinkToken(response.data.link_token);
+        setLinkToken(data.link_token);
       }
     } catch (error) {
       console.error('Error getting link token:', error);
@@ -184,31 +216,55 @@ export default function PlaidTest() {
     setLoading(true);
     setError(null);
     try {
-      const response = await axios.post('http://localhost:5001/api/plaid/transactions/sync', {
-        access_token: accessToken
+      const response = await fetch('/api/plaid/transactions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ access_token: accessToken })
       });
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch transactions');
+      }
+
+      const data = await response.json();
       
       if (isMounted.current) {
-        const transactions = response.data.transactions || [];
-        
         // Get all unique business names
-        const businessNames = Array.from(new Set(transactions.map(tx => tx.name)));
+        const businessNames = Array.from(new Set(data.transactions.map((tx: Transaction) => tx.merchant_name || tx.name)));
 
-        // Send all business names at once
-        const emissionsResponse = await axios.post('http://localhost:5001/api/business/classify/batch', {
-          businessNames
+        // Send all business names at once for classification
+        const emissionsResponse = await fetch('/api/business/classify/batch', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ businessNames })
         });
+
+        if (!emissionsResponse.ok) {
+          throw new Error('Failed to classify businesses');
+        }
+
+        const emissionsData = await emissionsResponse.json();
 
         // Create a map of business name to emissions data
         const emissionsMap = new Map(
-          emissionsResponse.data.map((item: any) => [item.businessName, item])
+          emissionsData.map((item: EmissionsData) => [item.businessName, item])
         );
 
         // Map emissions data back to transactions
-        const transactionsWithEmissions = transactions.map(tx => ({
-          ...tx,
-          emissions: emissionsMap.get(tx.name) || null
-        }));
+        const transactionsWithEmissions = data.transactions.map((tx: Transaction) => {
+          const businessName = tx.merchant_name || tx.name;
+          const emissionsInfo = emissionsMap.get(businessName) as EmissionsData | undefined;
+          
+          return {
+            ...tx,
+            calculated_emissions_kg: emissionsInfo?.emissionFactor ? 
+              Math.abs(tx.amount) * emissionsInfo.emissionFactor.factor : 0
+          };
+        });
 
         setTransactions(transactionsWithEmissions);
       }
@@ -223,6 +279,14 @@ export default function PlaidTest() {
       }
     }
   }, [accessToken]);
+
+  // Check for stored access token on mount
+  useEffect(() => {
+    const storedToken = localStorage.getItem('plaid_access_token');
+    if (storedToken) {
+      setAccessToken(storedToken);
+    }
+  }, []);
 
   return (
     <>
@@ -307,15 +371,14 @@ export default function PlaidTest() {
               <Transactions
                 transactions={transactions.map(tx => ({
                   date: tx.date,
-                  description: tx.name,
+                  description: tx.merchant_name || tx.name,
                   amount: tx.amount,
-                  category: Array.isArray(tx.category) ? tx.category[0] : tx.category || 'Uncategorized',
-                  carbon_emissions: tx.emissions ? {
-                    description: tx.emissions.industry,
-                    intensity: tx.emissions.emissionFactor ? `${tx.emissions.emissionFactor.factor} ${tx.emissions.emissionFactor.unit}` : 'N/A'
-                  } : undefined,
-                  calculated_emissions_kg: tx.emissions?.emissionFactor ? 
-                    Math.abs(tx.amount) * tx.emissions.emissionFactor.factor : 0
+                  category: tx.personal_finance_category?.primary || (Array.isArray(tx.category) ? tx.category[0] : tx.category) || 'Uncategorized',
+                  carbon_emissions: {
+                    description: tx.personal_finance_category?.primary || tx.category[0] || 'Uncategorized',
+                    intensity: `${tx.calculated_emissions_kg?.toFixed(5)} kg CO2e`
+                  },
+                  calculated_emissions_kg: tx.calculated_emissions_kg || 0
                 }))}
               />
             </div>

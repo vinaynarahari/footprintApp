@@ -8,6 +8,13 @@ import { usePlaidLink } from "react-plaid-link";
 import Head from 'next/head';
 import { usePlaidScript } from '../hooks/usePlaidScript';
 import Image from 'next/image';
+import { createClient } from '@supabase/supabase-js';
+
+// Define colors for the pie chart
+const COLORS = [
+  '#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8',
+  '#82CA9D', '#FFC658', '#FF7C43', '#A4DE6C', '#D0ED57'
+];
 
 // Mock data for the pie chart
 const spendingCategories = [
@@ -74,6 +81,52 @@ interface GraphScaling {
   labels: number[];
 }
 
+interface Transaction {
+  id: string;
+  name: string;
+  amount: number;
+  date: string;
+  category: string[];
+  eco_friendly: boolean;
+  merchant_name?: string;
+  personal_finance_category?: {
+    primary: string;
+    detailed: string;
+  };
+}
+
+interface SpendingCategory {
+  category: string;
+  amount: number;
+  percentage: number;
+  value: number;  // For pie chart compatibility
+  name: string;   // For pie chart compatibility
+  color: string;  // For pie chart compatibility
+}
+
+interface EmissionsData {
+  day: Array<{ date: string; value: number }>;
+  week: Array<{ date: string; value: number }>;
+  month: Array<{ date: string; value: number }>;
+  year: Array<{ date: string; value: number }>;
+}
+
+// Initialize Supabase client
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+  {
+    auth: {
+      persistSession: false
+    },
+    global: {
+      headers: {
+        'apikey': process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+      }
+    }
+  }
+);
+
 const Dashboard: React.FC = () => {
   const router = useRouter();
   const { data: session, status } = useSession({
@@ -83,15 +136,26 @@ const Dashboard: React.FC = () => {
     },
   });
   
-  const [selectedTimeRange, setSelectedTimeRange] = useState('year');
+  const [selectedTimeRange, setSelectedTimeRange] = useState<string>('month');
   const [showProfile, setShowProfile] = useState(false);
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [isPlaidConnected, setIsPlaidConnected] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [showPlaidPrompt, setShowPlaidPrompt] = useState(true);
+  const [accessToken, setAccessToken] = useState<string | null>(null);
   const currentData = emissionsData[selectedTimeRange as keyof typeof emissionsData] || [];
   const [imageError, setImageError] = useState(false);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [spendingCategories, setSpendingCategories] = useState<SpendingCategory[]>([]);
+  const [co2Data, setCo2Data] = useState<EmissionsData>({
+    day: [],
+    week: [],
+    month: [],
+    year: []
+  });
+  const [totalCO2, setTotalCO2] = useState<number>(0);
+  const [dateRangeText, setDateRangeText] = useState<string>('');
   
   // Calculate graph scaling values with padding
   const graphScaling = useMemo<GraphScaling>(() => {
@@ -124,9 +188,6 @@ const Dashboard: React.FC = () => {
       labels: yAxisLabels,
     };
   }, [currentData]);
-  
-  // Calculate total CO2 emissions for the year
-  const totalCO2 = 1475.0; // Fixed value as shown in the image
   
   // SVG path generator for pie chart segments
   const createPieSegment = (startAngle: number, endAngle: number, radius: number = 100) => {
@@ -177,6 +238,8 @@ const Dashboard: React.FC = () => {
   // Handle sign out
   const handleSignOut = async () => {
     setShowProfile(false);
+    // Clear Plaid access token on logout
+    localStorage.removeItem('plaid_access_token');
     await signOut({ redirect: true, callbackUrl: '/auth' });
   };
 
@@ -208,59 +271,152 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const handlePlaidSuccess = async (public_token: string, metadata: any) => {
+  const fetchSupabaseData = async () => {
+    setIsLoading(true);
     try {
-      setIsLoading(true);
-      setError(null);
-      
-      const response = await fetch('/api/plaid/exchange-token', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ public_token }),
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to exchange token');
+      const access_token = localStorage.getItem('plaid_access_token');
+      if (!access_token) {
+        console.error('No access token found');
+        return;
       }
-      
-      setIsPlaidConnected(true);
-      // Refresh transactions after successful connection
-      await fetchTransactions();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
-  const handlePlaidExit = (err: any, metadata: any) => {
-    if (err) {
-      setError(err.display_message || err.error_message || 'An error occurred');
-    }
-  };
-
-  const fetchTransactions = async () => {
-    try {
-      setIsLoading(true);
-      setError(null);
-      const response = await fetch('/api/plaid/transactions', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-      });
-      
+      const response = await fetch(`/api/plaid/transactions?access_token=${access_token}`);
       if (!response.ok) {
         throw new Error('Failed to fetch transactions');
       }
-      
       const data = await response.json();
-      // TODO: Update transactions state with real data
-      // For now, we'll keep using mock data
+      
+      if (!data.transactions || data.transactions.length === 0) {
+        setTransactions([]);
+        setSpendingCategories([]);
+        setCo2Data({ day: [], week: [], month: [], year: [] });
+        setTotalCO2(0);
+        return;
+      }
+
+      // Store all transactions
+      setTransactions(data.transactions);
+
+      // Get filtered transactions based on time range
+      const now = new Date();
+      let startDate = new Date();
+      
+      switch (selectedTimeRange) {
+        case 'day':
+          startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+          break;
+        case 'week':
+          startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+          break;
+        case 'month':
+          startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+          break;
+        case 'year':
+          startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+          break;
+      }
+
+      const filteredTransactions = data.transactions.filter(tx => 
+        new Date(tx.date) >= startDate
+      );
+
+      // Process transactions for spending categories
+      const categoryTotals: Record<string, number> = {};
+      let totalAmount = 0;
+
+      filteredTransactions.forEach(tx => {
+        const category = tx.personal_finance_category?.primary || tx.category?.[0] || 'Uncategorized';
+        const amount = Math.abs(Number(tx.amount));
+        categoryTotals[category] = (categoryTotals[category] || 0) + amount;
+        totalAmount += amount;
+      });
+
+      const categories: SpendingCategory[] = Object.entries(categoryTotals)
+        .map(([category, amount], colorIndex) => ({
+          category,
+          amount: Number(amount),
+          percentage: (Number(amount) / totalAmount) * 100,
+          value: (Number(amount) / totalAmount) * 100, // For pie chart
+          name: category,
+          color: COLORS[colorIndex % COLORS.length]
+        }));
+
+      setSpendingCategories(categories);
+
+      // Helper function to calculate CO2 emissions for a transaction
+      const calculateCO2 = (tx: any) => {
+        const amount = Math.abs(Number(tx.amount));
+        const category = tx.personal_finance_category?.primary || tx.category?.[0] || 'Uncategorized';
+        
+        // CO2 emission factors (kg CO2 per dollar) for different categories
+        const emissionFactors: Record<string, number> = {
+          'Food and Drink': 0.5,
+          'Transportation': 0.8,
+          'Shopping': 0.3,
+          'Utilities': 0.6,
+          'Entertainment': 0.4,
+          'Travel': 1.2,
+          'Healthcare': 0.2,
+          'Education': 0.3,
+          'Home': 0.4,
+          'Personal Care': 0.3,
+          'Uncategorized': 0.4
+        };
+
+        return amount * (emissionFactors[category] || 0.4);
+      };
+
+      // Calculate total CO2 emissions for filtered transactions
+      const totalCO2 = filteredTransactions.reduce((sum, tx) => 
+        sum + calculateCO2(tx), 0
+      );
+
+      setTotalCO2(totalCO2);
+
+      // Process CO2 data for the graph
+      const processedEmissions = filteredTransactions.reduce((acc: any, tx) => {
+        const date = new Date(tx.date);
+        const co2 = calculateCO2(tx);
+        
+        let timeKey;
+        if (selectedTimeRange === 'day') {
+          timeKey = date.getHours() + ':00';
+        } else if (selectedTimeRange === 'week') {
+          timeKey = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][date.getDay()];
+        } else if (selectedTimeRange === 'month') {
+          timeKey = 'Week ' + Math.ceil((date.getDate()) / 7);
+        } else {
+          timeKey = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][date.getMonth()];
+        }
+        
+        if (!acc[timeKey]) {
+          acc[timeKey] = 0;
+        }
+        acc[timeKey] += co2;
+        return acc;
+      }, {});
+
+      // Convert to array format for the graph
+      const graphData = Object.entries(processedEmissions)
+        .map(([time, value]) => ({ time, value }))
+        .sort((a, b) => {
+          if (selectedTimeRange === 'week') {
+            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            return days.indexOf(a.time) - days.indexOf(b.time);
+          }
+          return 0;
+        });
+
+      // Update graph data
+      const newEmissionsData = {
+        ...co2Data,
+        [selectedTimeRange]: graphData
+      };
+      setCo2Data(newEmissionsData);
+
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred');
+      console.error('Error fetching transaction data:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred while fetching data');
     } finally {
       setIsLoading(false);
     }
@@ -278,21 +434,70 @@ const Dashboard: React.FC = () => {
 
   // Check if bank is connected on component mount
   useEffect(() => {
-    const checkBankConnection = async () => {
+    const checkConnection = async () => {
       try {
+        // Check if we have a stored access token
+        const storedAccessToken = localStorage.getItem('plaid_access_token');
+        
+        if (storedAccessToken) {
+          console.log('Found stored access token, verifying connection...');
+          setAccessToken(storedAccessToken);
+          
+          // Verify the access token is still valid
+          const response = await fetch('/api/plaid/check-connection', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ access_token: storedAccessToken }),
+          });
+          
+          const data = await response.json();
+          
+          if (data.isConnected) {
+            console.log('Stored access token is valid');
+            setIsPlaidConnected(true);
+            setShowPlaidPrompt(false);
+            await fetchSupabaseData();
+            return;
+          } else {
+            console.log('Stored access token is invalid, removing it');
+            localStorage.removeItem('plaid_access_token');
+          }
+        }
+        
+        // If no stored token or token is invalid, check connection status
         const response = await fetch('/api/plaid/check-connection');
         const data = await response.json();
         setIsPlaidConnected(data.isConnected);
-        setShowPlaidPrompt(!data.isConnected);
+        
+        // If connected, fetch the data
+        if (data.isConnected) {
+          await fetchSupabaseData();
+        }
+        
+        // Delay showing the prompt to ensure smooth animation
+        setTimeout(() => {
+          setShowPlaidPrompt(!data.isConnected);
+        }, 100);
       } catch (error) {
         console.error('Error checking bank connection:', error);
         setIsPlaidConnected(false);
-        setShowPlaidPrompt(true);
+        setTimeout(() => {
+          setShowPlaidPrompt(true);
+        }, 100);
       }
     };
 
-    checkBankConnection();
+    checkConnection();
   }, []);
+
+  // Fetch data when time range changes
+  useEffect(() => {
+    if (isPlaidConnected) {
+      fetchSupabaseData();
+    }
+  }, [selectedTimeRange]);
 
   const { open, ready } = usePlaidLink({
     token: linkToken,
@@ -306,6 +511,124 @@ const Dashboard: React.FC = () => {
       open();
     }
   }, [ready, showPlaidPrompt, linkToken, open]);
+
+  const handlePlaidSuccess = async (public_token: string, metadata: any) => {
+    try {
+      setIsLoading(true);
+      setError(null);
+      
+      console.log('Exchanging public token for access token...');
+      const response = await fetch('/api/plaid/exchange-token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({ public_token }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to exchange token');
+      }
+
+      const data = await response.json();
+      console.log('Token exchange successful:', data);
+      
+      // Store the access token in localStorage
+      if (data.access_token) {
+        localStorage.setItem('plaid_access_token', data.access_token);
+        setAccessToken(data.access_token);
+      }
+      
+      // Update connection status
+      setIsPlaidConnected(true);
+      setShowPlaidPrompt(false);
+      
+      // Fetch initial data
+      await fetchSupabaseData();
+      
+    } catch (err) {
+      console.error('Error in handlePlaidSuccess:', err);
+      setError(err instanceof Error ? err.message : 'An error occurred');
+      setIsPlaidConnected(false);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handlePlaidExit = (err: any, metadata: any) => {
+    if (err) {
+      setError(err.display_message || err.error_message || 'An error occurred');
+    }
+  };
+
+  // Helper function to determine if a category is eco-friendly
+  const determineEcoFriendly = (categories: string[] | null): boolean => {
+    if (!categories || !Array.isArray(categories)) return false;
+    
+    const ecoFriendlyCategories = [
+      'Food', 'Transportation', 'Utilities', 'Home', 'Healthcare',
+      'Groceries', 'Public Transit', 'Electric', 'Gas', 'Water',
+      'Medical', 'Dental', 'Pharmacy'
+    ];
+    return categories.some(category => ecoFriendlyCategories.includes(category));
+  };
+
+  // Update date range text when time range changes
+  useEffect(() => {
+    const now = new Date();
+    let startDate = new Date();
+    
+    switch (selectedTimeRange) {
+      case 'day':
+        startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        setDateRangeText('Last 24 hours');
+        break;
+      case 'week':
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        setDateRangeText('Last 7 days');
+        break;
+      case 'month':
+        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        setDateRangeText('Last 30 days');
+        break;
+      case 'year':
+        startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+        setDateRangeText('Last 12 months');
+        break;
+      default:
+        setDateRangeText('');
+    }
+  }, [selectedTimeRange]);
+
+  // Get filtered transactions based on selected time range
+  const filteredTransactions = useMemo(() => {
+    if (!transactions.length) return [];
+    
+    const now = new Date();
+    let startDate = new Date();
+    
+    switch (selectedTimeRange) {
+      case 'day':
+        startDate = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+        break;
+      case 'week':
+        startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+        break;
+      case 'month':
+        startDate = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+        break;
+      case 'year':
+        startDate = new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000);
+        break;
+    }
+    
+    return transactions
+      .filter(tx => new Date(tx.date) >= startDate)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .slice(0, 10); // Show only the 10 most recent transactions
+  }, [transactions, selectedTimeRange]);
 
   // Show loading state while checking authentication
   if (status === "loading" || isLoading) {
@@ -331,7 +654,7 @@ const Dashboard: React.FC = () => {
           transition={{ duration: 0.5 }}
           className="max-w-7xl mx-auto px-6 py-8"
         >
-          <div className="flex justify-between items-center mb-12">
+          <div className="flex justify-between items-center mb-6">
             <h1 className="text-3xl font-bold text-gray-900 dark:text-white">
               Dashboard
             </h1>
@@ -387,294 +710,336 @@ const Dashboard: React.FC = () => {
             </div>
           </div>
 
+          {/* Date Range Picker */}
+          <div className="mb-6 flex items-center justify-between">
+            <div className="flex items-center">
+              <IconCalendar className="w-5 h-5 mr-2 text-gray-500 dark:text-gray-400" />
+              <h2 className="text-lg font-medium text-gray-700 dark:text-gray-300">
+                {dateRangeText}
+              </h2>
+            </div>
+            <div className="flex space-x-1 bg-gray-100 dark:bg-zinc-800 rounded-lg p-1">
+              {timeRanges.map((range) => (
+                <button
+                  key={range.value}
+                  onClick={() => setSelectedTimeRange(range.value)}
+                  className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                    selectedTimeRange === range.value
+                      ? 'bg-white dark:bg-zinc-700 text-gray-900 dark:text-white shadow-sm'
+                      : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-zinc-700'
+                  }`}
+                >
+                  {range.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
           {/* Main Content */}
-          {showPlaidPrompt ? (
+          {isPlaidConnected && (
             <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="max-w-md mx-auto bg-white dark:bg-zinc-900 rounded-lg shadow-lg p-8 text-center"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="space-y-6"
             >
-              <h2 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">Connect Your Bank Account</h2>
-              <p className="text-gray-600 dark:text-gray-400 mb-8">
-                To start tracking your carbon footprint, please connect your bank account. This helps us analyze your spending patterns and calculate your environmental impact.
-              </p>
-              <motion.button
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.98 }}
-                onClick={getLinkToken}
-                disabled={isLoading}
-                className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center"
-              >
-                {isLoading ? (
-                  <div className="flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+              {/* Spending Categories Section */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <motion.div 
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.5, delay: 0.2 }}
+                  className="bg-white dark:bg-zinc-900 rounded-lg shadow-sm p-6"
+                >
+                  <div className="flex items-center mb-6">
+                    <IconChartPie className="w-5 h-5 mr-2 text-blue-500" />
+                    <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
+                      Spending Categories
+                    </h2>
                   </div>
-                ) : (
-                  <span>Connect bank with Plaid</span>
-                )}
-              </motion.button>
-              {error && (
-                <p className="mt-4 text-red-500 text-sm">{error}</p>
-              )}
-            </motion.div>
-          ) : (
-            isPlaidConnected && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                className="space-y-6"
-              >
-                {/* Spending Categories Section */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <motion.div 
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.5, delay: 0.2 }}
-                    className="bg-white dark:bg-zinc-900 rounded-lg shadow-sm p-6"
-                  >
-                    <div className="flex items-center mb-6">
-                      <IconChartPie className="w-5 h-5 mr-2 text-blue-500" />
+                  
+                  <div className="relative h-80 flex items-center justify-center">
+                    <svg 
+                      viewBox="-110 -110 220 220" 
+                      className="w-64 h-64 transform -rotate-90"
+                    >
+                      {spendingCategories.map((category, index) => {
+                        const angle = (category.value / totalSpending) * 2 * Math.PI;
+                        const path = createPieSegment(currentAngle, currentAngle + angle);
+                        const currentPath = path;
+                        currentAngle += angle;
+                        
+                        return (
+                          <path
+                            key={index}
+                            d={currentPath}
+                            fill={category.color}
+                            stroke="white"
+                            strokeWidth="1"
+                            className="transition-all duration-300"
+                          />
+                        );
+                      })}
+                      {/* Center circle */}
+                      <circle r="60" fill="white" className="dark:fill-zinc-800" />
+                    </svg>
+                    
+                    {/* Center content */}
+                    <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
+                      <IconUser className="w-8 h-8 mx-auto mb-2 text-gray-600 dark:text-gray-300" />
+                      <p className="text-sm text-gray-500 dark:text-gray-400">Your CO₂</p>
+                      <p className="text-xl font-bold text-gray-900 dark:text-white">{totalCO2.toFixed(1)} kg</p>
+                    </div>
+                  </div>
+                  
+                  {/* Legend */}
+                  <div className="mt-6 grid grid-cols-2 gap-y-3">
+                    {spendingCategories.map((category, index) => (
+                      <div key={index} className="flex items-center">
+                        <div 
+                          className="w-3 h-3 rounded-full mr-2" 
+                          style={{ backgroundColor: category.color }}
+                        />
+                        <span className="text-sm text-gray-600 dark:text-gray-400">
+                          {category.name} ({category.value}%)
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+                
+                {/* Right half - Interactive Graph */}
+                <motion.div 
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.5, delay: 0.3 }}
+                  className="bg-white dark:bg-zinc-900 rounded-lg shadow-sm p-6"
+                >
+                  <div className="flex items-center justify-between mb-6">
+                    <div className="flex items-center">
+                      <IconChartBar className="w-5 h-5 mr-2 text-green-500" />
                       <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                        Spending Categories
+                        CO₂ Emissions
                       </h2>
                     </div>
-                    
-                    <div className="relative h-80 flex items-center justify-center">
-                      <svg 
-                        viewBox="-110 -110 220 220" 
-                        className="w-64 h-64 transform -rotate-90"
-                      >
-                        {spendingCategories.map((category, index) => {
-                          const angle = (category.value / totalSpending) * 2 * Math.PI;
-                          const path = createPieSegment(currentAngle, currentAngle + angle);
-                          const currentPath = path;
-                          currentAngle += angle;
-                          
-                          return (
-                            <path
-                              key={index}
-                              d={currentPath}
-                              fill={category.color}
-                              stroke="white"
-                              strokeWidth="1"
-                              className="transition-all duration-300"
-                            />
-                          );
-                        })}
-                        {/* Center circle */}
-                        <circle r="60" fill="white" className="dark:fill-zinc-800" />
-                      </svg>
-                      
-                      {/* Center content */}
-                      <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 text-center">
-                        <IconUser className="w-8 h-8 mx-auto mb-2 text-gray-600 dark:text-gray-300" />
-                        <p className="text-sm text-gray-500 dark:text-gray-400">Your CO₂</p>
-                        <p className="text-xl font-bold text-gray-900 dark:text-white">{totalCO2.toFixed(1)} kg</p>
-                      </div>
-                    </div>
-                    
-                    {/* Legend */}
-                    <div className="mt-6 grid grid-cols-2 gap-y-3">
-                      {spendingCategories.map((category, index) => (
-                        <div key={index} className="flex items-center">
-                          <div 
-                            className="w-3 h-3 rounded-full mr-2" 
-                            style={{ backgroundColor: category.color }}
-                          />
-                          <span className="text-sm text-gray-600 dark:text-gray-400">
-                            {category.name} ({category.value}%)
-                          </span>
-                        </div>
+                  </div>
+                  
+                  <div className="h-80 relative">
+                    {/* Y-axis with animated values */}
+                    <div className="absolute left-0 top-0 bottom-6 w-16 flex flex-col justify-between text-xs text-gray-500 dark:text-gray-400">
+                      {graphScaling.labels.map((value, i) => (
+                        <motion.span
+                          key={i}
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ duration: 0.3, delay: i * 0.05 }}
+                        >
+                          {formatYAxisValue(value)}
+                        </motion.span>
                       ))}
                     </div>
-                  </motion.div>
-                  
-                  {/* Right half - Interactive Graph */}
-                  <motion.div 
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.5, delay: 0.3 }}
-                    className="bg-white dark:bg-zinc-900 rounded-lg shadow-sm p-6"
-                  >
-                    <div className="flex items-center justify-between mb-6">
-                      <div className="flex items-center">
-                        <IconChartBar className="w-5 h-5 mr-2 text-green-500" />
-                        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">
-                          CO₂ Emissions
-                        </h2>
-                      </div>
-                      
-                      <div className="flex space-x-1 bg-gray-100 dark:bg-zinc-800 rounded-lg p-1">
-                        {timeRanges.map((range) => (
-                          <button
-                            key={range.value}
-                            onClick={() => setSelectedTimeRange(range.value)}
-                            className={`px-3 py-1 text-sm rounded-md transition-colors ${
-                              selectedTimeRange === range.value
-                                ? 'bg-white dark:bg-zinc-700 text-gray-900 dark:text-white shadow-sm'
-                                : 'text-gray-600 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-zinc-700'
-                            }`}
-                          >
-                            {range.label}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
                     
-                    <div className="h-80 relative">
-                      {/* Y-axis with animated values */}
-                      <div className="absolute left-0 top-0 bottom-6 w-16 flex flex-col justify-between text-xs text-gray-500 dark:text-gray-400">
-                        {graphScaling.labels.map((value, i) => (
+                    {/* Graph area */}
+                    <div className="ml-16 h-full pb-6 relative overflow-hidden">
+                      <AnimatePresence mode="wait">
+                        <motion.div
+                          key={selectedTimeRange}
+                          variants={graphContainerVariants}
+                          initial="initial"
+                          animate="animate"
+                          exit="exit"
+                          transition={{
+                            type: "spring",
+                            stiffness: 200,
+                            damping: 25,
+                          }}
+                          className="w-full h-full"
+                        >
+                          <svg 
+                            className="w-full h-full"
+                            viewBox="0 0 1100 400"
+                            preserveAspectRatio="none"
+                          >
+                            {/* Grid lines with animation */}
+                            {graphScaling.labels.map((_, i) => (
+                              <motion.line
+                                key={`h-${i}`}
+                                x1="0"
+                                y1={i * (400 / (graphScaling.labels.length - 1))}
+                                x2="1100"
+                                y2={i * (400 / (graphScaling.labels.length - 1))}
+                                stroke="#E5E7EB"
+                                strokeWidth="1"
+                                className="dark:stroke-zinc-800"
+                                initial={{ opacity: 0 }}
+                                animate={{ opacity: 1 }}
+                                transition={{ duration: 0.3, delay: i * 0.05 }}
+                              />
+                            ))}
+                            
+                            {currentData.length > 0 && (
+                              <>
+                                {/* Animated data line */}
+                                <motion.polyline
+                                  points={currentData.map((point, i) => {
+                                    const x = (i / (currentData.length - 1)) * 1100;
+                                    const y = 400 - ((point.value - graphScaling.min) / (graphScaling.max - graphScaling.min)) * 400;
+                                    return `${x},${y}`;
+                                  }).join(' ')}
+                                  fill="none"
+                                  stroke="#22C55E"
+                                  strokeWidth="2"
+                                  initial={{ pathLength: 0, opacity: 0 }}
+                                  animate={{ pathLength: 1, opacity: 1 }}
+                                  transition={{ duration: 0.5, delay: 0.2 }}
+                                />
+                                
+                                {/* Animated data points */}
+                                {currentData.map((point, i) => {
+                                  const x = (i / (currentData.length - 1)) * 1100;
+                                  const y = 400 - ((point.value - graphScaling.min) / (graphScaling.max - graphScaling.min)) * 400;
+                                  return (
+                                    <motion.circle
+                                      key={i}
+                                      cx={x}
+                                      cy={y}
+                                      r="4"
+                                      fill="#22C55E"
+                                      initial={{ scale: 0, opacity: 0 }}
+                                      animate={{ scale: 1, opacity: 1 }}
+                                      transition={{ duration: 0.3, delay: 0.5 + (i * 0.05) }}
+                                    />
+                                  );
+                                })}
+                              </>
+                            )}
+                          </svg>
+                        </motion.div>
+                      </AnimatePresence>
+                      
+                      {/* X-axis labels with animation */}
+                      <div className="absolute bottom-0 left-0 right-0 flex justify-between text-xs text-gray-500 dark:text-gray-400">
+                        {currentData.map((point, i) => (
                           <motion.span
                             key={i}
-                            initial={{ opacity: 0, x: -10 }}
-                            animate={{ opacity: 1, x: 0 }}
+                            initial={{ opacity: 0, y: 10 }}
+                            animate={{ opacity: 1, y: 0 }}
                             transition={{ duration: 0.3, delay: i * 0.05 }}
                           >
-                            {formatYAxisValue(value)}
+                            {point.time}
                           </motion.span>
                         ))}
                       </div>
-                      
-                      {/* Graph area */}
-                      <div className="ml-16 h-full pb-6 relative overflow-hidden">
-                        <AnimatePresence mode="wait">
-                          <motion.div
-                            key={selectedTimeRange}
-                            variants={graphContainerVariants}
-                            initial="initial"
-                            animate="animate"
-                            exit="exit"
-                            transition={{
-                              type: "spring",
-                              stiffness: 200,
-                              damping: 25,
-                            }}
-                            className="w-full h-full"
-                          >
-                            <svg 
-                              className="w-full h-full"
-                              viewBox="0 0 1100 400"
-                              preserveAspectRatio="none"
-                            >
-                              {/* Grid lines with animation */}
-                              {graphScaling.labels.map((_, i) => (
-                                <motion.line
-                                  key={`h-${i}`}
-                                  x1="0"
-                                  y1={i * (400 / (graphScaling.labels.length - 1))}
-                                  x2="1100"
-                                  y2={i * (400 / (graphScaling.labels.length - 1))}
-                                  stroke="#E5E7EB"
-                                  strokeWidth="1"
-                                  className="dark:stroke-zinc-800"
-                                  initial={{ opacity: 0 }}
-                                  animate={{ opacity: 1 }}
-                                  transition={{ duration: 0.3, delay: i * 0.05 }}
-                                />
-                              ))}
-                              
-                              {currentData.length > 0 && (
-                                <>
-                                  {/* Animated data line */}
-                                  <motion.polyline
-                                    points={currentData.map((point, i) => {
-                                      const x = (i / (currentData.length - 1)) * 1100;
-                                      const y = 400 - ((point.value - graphScaling.min) / (graphScaling.max - graphScaling.min)) * 400;
-                                      return `${x},${y}`;
-                                    }).join(' ')}
-                                    fill="none"
-                                    stroke="#22C55E"
-                                    strokeWidth="2"
-                                    initial={{ pathLength: 0, opacity: 0 }}
-                                    animate={{ pathLength: 1, opacity: 1 }}
-                                    transition={{ duration: 0.5, delay: 0.2 }}
-                                  />
-                                  
-                                  {/* Animated data points */}
-                                  {currentData.map((point, i) => {
-                                    const x = (i / (currentData.length - 1)) * 1100;
-                                    const y = 400 - ((point.value - graphScaling.min) / (graphScaling.max - graphScaling.min)) * 400;
-                                    return (
-                                      <motion.circle
-                                        key={i}
-                                        cx={x}
-                                        cy={y}
-                                        r="4"
-                                        fill="#22C55E"
-                                        initial={{ scale: 0, opacity: 0 }}
-                                        animate={{ scale: 1, opacity: 1 }}
-                                        transition={{ duration: 0.3, delay: 0.5 + (i * 0.05) }}
-                                      />
-                                    );
-                                  })}
-                                </>
-                              )}
-                            </svg>
-                          </motion.div>
-                        </AnimatePresence>
-                        
-                        {/* X-axis labels with animation */}
-                        <div className="absolute bottom-0 left-0 right-0 flex justify-between text-xs text-gray-500 dark:text-gray-400">
-                          {currentData.map((point, i) => (
-                            <motion.span
-                              key={i}
-                              initial={{ opacity: 0, y: 10 }}
-                              animate={{ opacity: 1, y: 0 }}
-                              transition={{ duration: 0.3, delay: i * 0.05 }}
-                            >
-                              {point.time}
-                            </motion.span>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </motion.div>
-                </div>
-                
-                {/* Recent Transactions Section */}
-                <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
-                  <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
-                    Recent Transactions
-                  </h2>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-zinc-800 rounded-lg">
-                      <div>
-                        <p className="font-medium text-gray-900 dark:text-white">Grocery Store</p>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">Local organic market</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-medium text-gray-900 dark:text-white">$45.20</p>
-                        <p className="text-sm text-green-600 dark:text-green-400">Eco-friendly</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-zinc-800 rounded-lg">
-                      <div>
-                        <p className="font-medium text-gray-900 dark:text-white">Online Shopping</p>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">Fast fashion retailer</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-medium text-gray-900 dark:text-white">$89.99</p>
-                        <p className="text-sm text-red-600 dark:text-red-400">High impact</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center justify-between p-4 bg-gray-50 dark:bg-zinc-800 rounded-lg">
-                      <div>
-                        <p className="font-medium text-gray-900 dark:text-white">Public Transit</p>
-                        <p className="text-sm text-gray-600 dark:text-gray-400">Monthly pass</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="font-medium text-gray-900 dark:text-white">$65.00</p>
-                        <p className="text-sm text-green-600 dark:text-green-400">Eco-friendly</p>
-                      </div>
                     </div>
                   </div>
+                </motion.div>
+              </div>
+              
+              {/* Recent Transactions Section */}
+              <div className="bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+                <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-4">
+                  Recent Transactions
+                </h2>
+                <div className="space-y-4">
+                  {filteredTransactions.map((transaction) => (
+                    <div
+                      key={transaction.id}
+                      className="flex items-center justify-between p-4 bg-white dark:bg-gray-800 rounded-lg shadow-sm"
+                    >
+                      <div className="flex items-center space-x-4">
+                        <div className="w-10 h-10 rounded-full bg-gray-100 dark:bg-gray-700 flex items-center justify-center">
+                          <span className="text-lg font-semibold text-gray-600 dark:text-gray-300">
+                            {transaction.merchant_name?.[0] || transaction.name[0]}
+                          </span>
+                        </div>
+                        <div>
+                          <p className="font-medium text-gray-900 dark:text-white">
+                            {transaction.merchant_name || transaction.name}
+                          </p>
+                          <p className="text-sm text-gray-500 dark:text-gray-400">
+                            {transaction.personal_finance_category?.primary || transaction.category[0]}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="font-medium text-gray-900 dark:text-white">
+                          ${Math.abs(transaction.amount).toFixed(2)}
+                        </p>
+                        <p className="text-sm text-gray-500 dark:text-gray-400">
+                          {new Date(transaction.date).toLocaleDateString()}
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+                  {filteredTransactions.length === 0 && (
+                    <div className="text-center py-8 text-gray-500 dark:text-gray-400">
+                      {isPlaidConnected 
+                        ? `No transactions found for the ${selectedTimeRange} period.` 
+                        : 'No transactions found. Connect your bank account to see your transactions.'}
+                    </div>
+                  )}
                 </div>
-              </motion.div>
-            )
+              </div>
+            </motion.div>
           )}
         </motion.div>
       </div>
+
+      {/* Plaid Prompt */}
+      <AnimatePresence>
+        {showPlaidPrompt && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.3 }}
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          >
+            <motion.div 
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ 
+                type: "spring",
+                stiffness: 300,
+                damping: 25,
+                duration: 0.3
+              }}
+              className="bg-white dark:bg-gray-800 rounded-xl p-6 max-w-md w-full shadow-xl"
+            >
+              <div className="text-center space-y-4">
+                <h2 className="text-2xl font-bold mb-4 text-gray-900 dark:text-white">Connect Your Bank Account</h2>
+                <p className="text-gray-600 dark:text-gray-400 mb-8">
+                  To start tracking your carbon footprint, please connect your bank account. This helps us analyze your spending patterns and calculate your environmental impact.
+                </p>
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={getLinkToken}
+                  disabled={isLoading}
+                  className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center"
+                >
+                  {isLoading ? (
+                    <div className="flex items-center justify-center">
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                    </div>
+                  ) : (
+                    <span>Connect bank with Plaid</span>
+                  )}
+                </motion.button>
+                {error && (
+                  <p className="mt-4 text-red-500 text-sm">{error}</p>
+                )}
+                <button 
+                  onClick={() => setShowPlaidPrompt(false)}
+                  className="mt-4 text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
+                >
+                  Close (if stuck)
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </Layout>
   );
 };

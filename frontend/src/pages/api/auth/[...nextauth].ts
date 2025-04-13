@@ -6,6 +6,7 @@ import CredentialsProvider from 'next-auth/providers/credentials';
 declare module 'next-auth' {
   interface Session extends DefaultSession {
     accessToken?: string;
+    plaidAccessToken?: string;
     user?: {
       id?: string;
       name?: string;
@@ -17,12 +18,14 @@ declare module 'next-auth' {
   interface User extends DefaultUser {
     id?: string;
     token?: string;
+    plaidAccessToken?: string;
   }
 }
 
 declare module 'next-auth/jwt' {
   interface JWT {
     accessToken?: string;
+    plaidAccessToken?: string;
     id?: string;
   }
 }
@@ -95,12 +98,14 @@ export const authOptions = {
       if (user) {
         token.id = user.id;
         token.accessToken = user.token;
+        token.plaidAccessToken = user.plaidAccessToken;
       }
       return token;
     },
     async session({ session, token }) {
       if (token) {
         session.accessToken = token.accessToken;
+        session.plaidAccessToken = token.plaidAccessToken;
         if (session.user) {
           session.user.id = token.id;
         }

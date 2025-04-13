@@ -1,26 +1,40 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
-  if (req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method not allowed' });
-  }
-
   try {
-    const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/plaid/check-connection`, {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-    });
+    // Check if we have an access token in the request body
+    const { access_token } = req.body;
+    
+    if (access_token) {
+      // For development, just return true if we have an access token
+      if (process.env.NODE_ENV === 'development') {
+        return res.status(200).json({ isConnected: true });
+      }
 
-    if (!response.ok) {
-      throw new Error(`API error: ${response.status}`);
+      // In production, verify the access token
+      try {
+        const response = await fetch(`${process.env.BACKEND_URL}/api/plaid/verify-token`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ access_token }),
+        });
+
+        if (response.ok) {
+          return res.status(200).json({ isConnected: true });
+        }
+      } catch (error) {
+        console.error('Error verifying access token:', error);
+      }
+
+      return res.status(200).json({ isConnected: false });
     }
-
-    const data = await response.json();
-    return res.status(200).json({ isConnected: data.isConnected });
+    
+    // If no access token provided, return not connected
+    return res.status(200).json({ isConnected: false });
   } catch (error) {
-    console.error('Error checking bank connection:', error);
+    console.error('Error checking connection:', error);
     return res.status(200).json({ isConnected: false });
   }
 } 
