@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 import Image from 'next/image';
 import { useRouter } from 'next/router';
+import { signIn, useSession } from 'next-auth/react';
 
 const facts = [
   {
@@ -22,11 +23,13 @@ const facts = [
 
 const AuthPage = () => {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<'login' | 'register'>('register');
+  const { status } = useSession();
+  const [activeTab, setActiveTab] = useState<'login' | 'register'>(
+    router.query.tab === 'register' ? 'register' : 'login'
+  );
   const [currentSlide, setCurrentSlide] = useState(0);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
-  
   const [formData, setFormData] = useState({
     fullName: '',
     email: '',
@@ -40,6 +43,12 @@ const AuthPage = () => {
 
     return () => clearInterval(timer);
   }, []);
+
+  useEffect(() => {
+    if (status === 'authenticated') {
+      router.push('/dashboard');
+    }
+  }, [status, router]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setFormData({
@@ -55,35 +64,55 @@ const AuthPage = () => {
     setError('');
 
     try {
-      const endpoint = activeTab === 'login' ? '/auth/login' : '/auth/register';
-      const response = await fetch(`http://localhost:4000${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(activeTab === 'login' ? {
+      if (activeTab === 'login') {
+        const result = await signIn('credentials', {
+          redirect: false,
           email: formData.email,
-          password: formData.password
-        } : formData),
-      });
+          password: formData.password,
+        });
 
-      const data = await response.json();
+        if (result?.error) {
+          setError('Invalid email or password');
+        }
+      } else {
+        // Register
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/auth/register`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(formData),
+        });
 
-      if (!response.ok) {
-        throw new Error(data.message || 'Authentication failed');
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.message || 'Registration failed');
+        }
+
+        // After successful registration, switch to login tab
+        setActiveTab('login');
+        setFormData({ ...formData, fullName: '' });
+        setError('Account created! Please sign in.');
       }
-
-      // Store the token
-      localStorage.setItem('token', data.token);
-      
-      // Redirect to dashboard
-      router.push('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
     } finally {
       setLoading(false);
     }
   };
+
+  if (status === 'loading') {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <motion.div
+          animate={{ rotate: 360 }}
+          transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+          className="w-8 h-8 border-2 border-black border-t-transparent rounded-full"
+        />
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex">
@@ -135,7 +164,7 @@ const AuthPage = () => {
       </div>
 
       {/* Right side - Auth form */}
-      <div className="flex-1 min-h-screen bg-gradient-to-br from-white to-gray-100">
+      <div className="flex-1 min-h-screen bg-gradient-to-br from-white to-gray-50">
         <div className="absolute top-4 left-4 lg:hidden">
           <Link 
             href="/" 
@@ -165,12 +194,6 @@ const AuthPage = () => {
             transition={{ duration: 0.5, delay: 0.1 }}
             className="bg-white/70 backdrop-blur-xl rounded-xl p-6 border border-gray-200 shadow-xl shadow-gray-200/20"
           >
-            {error && (
-              <div className="mb-4 p-3 rounded-md bg-red-50 border border-red-200 text-red-600 text-sm">
-                {error}
-              </div>
-            )}
-
             {/* Tabs */}
             <div className="flex space-x-1 mb-6 bg-gray-100 rounded-lg p-1">
               <button
@@ -184,7 +207,7 @@ const AuthPage = () => {
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
-                Login
+                Sign In
               </button>
               <button
                 onClick={() => {
@@ -197,12 +220,25 @@ const AuthPage = () => {
                     : 'text-gray-600 hover:text-gray-900'
                 }`}
               >
-                Register
+                Sign Up
               </button>
             </div>
 
-            {/* Form */}
-            <form onSubmit={handleSubmit}>
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`mb-6 p-3 rounded-md ${
+                  error.includes('created') 
+                    ? 'bg-gray-50 border border-gray-200 text-gray-900' 
+                    : 'bg-red-50 border border-red-200 text-red-600'
+                } text-sm`}
+              >
+                {error}
+              </motion.div>
+            )}
+
+            <form onSubmit={handleSubmit} className="space-y-4">
               <motion.div
                 key={activeTab}
                 initial={{ opacity: 0, x: activeTab === 'login' ? -20 : 20 }}
@@ -218,7 +254,7 @@ const AuthPage = () => {
                       name="fullName"
                       value={formData.fullName}
                       onChange={handleInputChange}
-                      className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent transition-all [&:-webkit-autofill]:bg-white [&:-webkit-autofill]:shadow-[0_0_0_30px_white_inset]"
+                      className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all"
                       placeholder="John Doe"
                       required={activeTab === 'register'}
                     />
@@ -232,7 +268,7 @@ const AuthPage = () => {
                     name="email"
                     value={formData.email}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent transition-all [&:-webkit-autofill]:bg-white [&:-webkit-autofill]:shadow-[0_0_0_30px_white_inset]"
+                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all"
                     placeholder="you@example.com"
                     required
                   />
@@ -245,61 +281,27 @@ const AuthPage = () => {
                     name="password"
                     value={formData.password}
                     onChange={handleInputChange}
-                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-transparent transition-all [&:-webkit-autofill]:bg-white [&:-webkit-autofill]:shadow-[0_0_0_30px_white_inset]"
+                    className="w-full px-3 py-2 bg-white border border-gray-200 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-900 focus:border-transparent transition-all"
                     placeholder="••••••••"
                     required
                   />
                 </div>
 
-                <button 
+                <button
                   type="submit"
                   disabled={loading}
-                  className="w-full py-3 px-4 bg-black text-white rounded-md font-medium hover:bg-gray-900 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full bg-black text-white py-2 rounded-md font-medium hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed mt-6"
                 >
                   {loading ? (
-                    <span className="inline-flex items-center">
-                      <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                      </svg>
-                      {activeTab === 'login' ? 'Signing in...' : 'Creating account...'}
-                    </span>
+                    <motion.div
+                      animate={{ rotate: 360 }}
+                      transition={{ duration: 1, repeat: Infinity, ease: "linear" }}
+                      className="w-5 h-5 border-2 border-white border-t-transparent rounded-full mx-auto"
+                    />
                   ) : (
                     activeTab === 'login' ? 'Sign In' : 'Create Account'
                   )}
                 </button>
-
-                <p className="text-sm text-gray-500 text-center">
-                  {activeTab === 'login' ? (
-                    <>
-                      Don't have an account?{' '}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveTab('register');
-                          setError('');
-                        }}
-                        className="text-gray-900 hover:text-gray-700 transition-colors font-medium"
-                      >
-                        Sign up
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      Already have an account?{' '}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setActiveTab('login');
-                          setError('');
-                        }}
-                        className="text-gray-900 hover:text-gray-700 transition-colors font-medium"
-                      >
-                        Sign in
-                      </button>
-                    </>
-                  )}
-                </p>
               </motion.div>
             </form>
           </motion.div>
